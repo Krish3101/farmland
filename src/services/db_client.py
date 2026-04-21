@@ -1,71 +1,52 @@
 """
 src/services/db_client.py
 --------------------------
-Async database client for the Farmland Processing Pipeline.
-
-Reads pre-cleaned farm geometry from src/data/farmland.db via aiosqlite.
-The .db file is populated once by scripts/migrate_to_sqlite.py.
-
-Raises:
-    HTTPException(503): farmland.db file is missing.
-    HTTPException(500): unexpected error during query.
+Database client for the Farmland Processing Pipeline.
+Uses SQLAlchemy to interface with PostGIS.
 """
 import json
 import logging
-from pathlib import Path
 from typing import Any, Dict, Optional
 
-import aiosqlite
-from fastapi import HTTPException
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from src.models.farm import Farm
 
 logger = logging.getLogger(__name__)
 
-# Absolute path — works no matter what CWD the server is launched from
-_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "farmland.db"
 
-
-async def fetch_farm_data(phone_number: str) -> Optional[Dict[str, Any]]:
+async def fetch_farm_data(session: AsyncSession, phone_number: str) -> Optional[Dict[str, Any]]:
     """
-    Look up a farmer by phone number and return pre-cleaned geometry.
+    Look up a farmer by phone number and return cleaned geometry.
+
+    Args:
+        session: Async SQLAlchemy session.
+        phone_number: Farmer's phone number.
 
     Returns:
         dict with keys: kvk_number, geometry (GeoJSON dict), fixes_applied (list[str])
-        None if no record found for the given phone number.
-
-    Raises:
-        HTTPException(503): farmland.db is missing — run the migration script.
-        HTTPException(500): unexpected internal error.
+        None if no record found.
     """
-    if not _DB_PATH.exists():
-        logger.error("Database not found: %s", _DB_PATH)
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Data source unavailable. farmland.db is missing — "
-                "run scripts/migrate_to_sqlite.py to generate it."
-            ),
-        )
-
     try:
-        async with aiosqlite.connect(_DB_PATH) as db:
-            cursor = await db.execute(
-                "SELECT geometry, fixes_applied FROM farms WHERE phone_number = ?",
-                (str(phone_number).strip(),),
-            )
-            row = await cursor.fetchone()
+        # Use ST_AsGeoJSON to get the geometry as a GeoJSON string directly from PostGIS
+        stmt = select(
+            Farm.phone_number,
+            func.ST_AsGeoJSON(Farm.geom).label("geometry_json"),
+            Farm.fixes_applied
+        ).where(Farm.phone_number == str(phone_number).strip())
+        
+        result = await session.execute(stmt)
+        row = result.fetchone()
 
         if row is None:
             return None
 
-        geometry_json, fixes_json = row
         return {
-            "kvk_number": phone_number,
-            "geometry": json.loads(geometry_json),
-            "fixes_applied": json.loads(fixes_json),
+            "kvk_number": row.phone_number,
+            "geometry": json.loads(row.geometry_json),
+            "fixes_applied": row.fixes_applied,
         }
 
-    except HTTPException:
-        raise  # re-raise 503 without wrapping
     except Exception as exc:
         logger.error(
             "Unexpected error fetching farm data for %s: %s",
@@ -73,7 +54,4 @@ async def fetch_farm_data(phone_number: str) -> Optional[Dict[str, Any]]:
             exc,
             exc_info=True,
         )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal error while fetching farm data: {exc}",
-        )
+        return None

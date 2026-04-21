@@ -31,9 +31,8 @@ ENV/
 env.bak/
 venv.bak/
 
-# SQLite
+# SQLite (not used - project uses PostGIS)
 *.db
-!src/data/farmland.db
 
 # OS
 .DS_Store

@@ -1,24 +1,33 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from src.api.routes import router as api_router
+from src.services.database import engine
 import uvicorn
 from pathlib import Path
 
-# Resolve paths relative to this file so CWD never matters
+# Resolve paths relative to this file
 _SRC_DIR = Path(__file__).resolve().parent
 _STATIC_DIR = _SRC_DIR / "static"
 _INDEX_HTML = _STATIC_DIR / "index.html"
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic
+    yield
+    # Shutdown logic
+    await engine.dispose()
+
 app = FastAPI(
     title="Farmland Processing Pipeline",
     description=(
-        "REST API for retrieving, auto-cleaning, and geocoding farmland geometry "
-        "with Silent Healing telemetry. Data is served from a pre-built SQLite "
-        "database (farmland.db) via aiosqlite for non-blocking async reads."
+        "REST API for retrieving, auto-cleaning, and geocoding farmland geometry. "
+        "Powered by PostgreSQL/PostGIS and SQLAlchemy."
     ),
-    version="3.0.0",
+    version="4.0.0",
+    lifespan=lifespan,
 )
 
 # ── CORS ──────────────────────────────────────────────────────────────────────

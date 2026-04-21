@@ -2,97 +2,109 @@
 
 ## Project Overview
 
-The **Farmland Processing Pipeline** is a robust, enterprise-grade REST API designed to solve the critical challenge of ingesting messy, heterogeneous farmland coordinate data from Krishi Vigyan Kendras (KVKs). 
+The **Farmland Processing Pipeline** is a production-grade GIS microservice designed to solve the critical challenge of ingesting messy, heterogeneous farmland coordinate data from Krishi Vigyan Kendras (KVKs).
 
-Built using **FastAPI** and **Shapely**, the system acts as an "aggressive auto-correcting" middleman. It ingests legacy Excel spreadsheets, automatically repairs corrupted GPS data points, and outputs perfectly formatted, machine-learning-ready **GeoJSON (WGS84 - EPSG:4326)**. This clean output is optimized for downstream Sentinel-2 satellite analysis, ensuring that Remote Sensing teams can perform accurate crop monitoring without manual data sanitization.
+Built using **FastAPI**, **PostgreSQL/PostGIS**, and **Shapely**, the system acts as an intelligent "Silent Healing" bridge. It reads farm records from a PostGIS database, automatically repairs corrupted GPS data, and outputs perfectly formatted RFC 7946 **GeoJSON (WGS84 - EPSG:4326)**.
+
+This clean output can be consumed directly by the testing dashboard or forwarded programmatically to any downstream backend module (e.g., a Remote Sensing or ML pipeline).
 
 ---
 
-## Key Features (The 'Auto-Fix' Pipeline)
+## Key Features (The 'Silent Healing' Pipeline)
 
-The system is designed to be 100% crash-proof and resilient to common data entry errors:
+The system is designed to be 100% crash-proof and resilient to real-world field data errors:
 
-- **🚀 Dynamic Parsing**: Automatically detects and reads farms with any number of coordinate points, dynamically identifying the starting column (e.g., 'A') and stopping when non-coordinate data is reached.
-- **🧹 Data Janitor**: 
+- **🚀 Dynamic Parsing**: Automatically detects and reads farms with any number of coordinate points from legacy Excel spreadsheets.
+- **🧹 Data Janitor**:
     - **Space Eradication**: Automatically strips all accidental whitespace from coordinate strings.
-    - **Decimal Auto-Injection**: Detects missing decimal points (e.g., `185228` instead of `18.5228`) and automatically injects them after the second character for consistent float conversion.
-- **🛡️ Mathematical Repair (Convex Hull)**: Uses the **Convex Hull** algorithm to automatically resolve self-intersecting "bowtie" polygons caused by out-of-order GPS collection. The system guarantees a mathematically valid, closed-loop Polygon for every success response.
-- **📏 High-Precision Normalization**: All coordinates are rounded to 6 decimal places to meet standard remote sensing precision requirements.
+    - **Decimal Auto-Injection**: Detects and fixes numbers like `185228` → `18.5228`.
+- **🔄 India Bounds Lat/Lon Swap**: If GPS coordinates appear to be outside India's geographic bounds (`6°N–38°N`, `66°E–98°E`), the system automatically detects and corrects swapped Latitude/Longitude values — a common field data entry error.
+- **🛡️ Topology Repair**: Uses `buffer(0)` to untangle self-intersecting "bowtie" polygons while **preserving the original farm shape**. Falls back to Convex Hull only as a last resort.
+- **📏 High-Precision Normalization**: All coordinates are rounded to 6 decimal places.
+- **🔗 Module Forwarding**: A dedicated endpoint accepts a `phone_number` and `target_url`, heals the data, and automatically POSTs the GeoJSON to a downstream backend module.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| API Framework | FastAPI |
+| Database | PostgreSQL + PostGIS |
+| ORM | SQLAlchemy (Async) + GeoAlchemy2 |
+| Geometry Engine | Shapely |
+| HTTP Client | HTTPX (async forwarding) |
+| Infrastructure | Docker Compose (OrbStack) |
 
 ---
 
 ## Project Structure
 
 ```text
-farmland-processing-pipeline/
+data-pipeline/
 ├── src/
 │   ├── api/            # Pydantic Schemas and API Routes
-│   ├── services/       # Core Business Logic (DB Client & Geometry Processor)
-│   ├── data/           # Source Excel Database (farmers_data.xls)
-│   ├── static/         # Frontend Dashboard (HTML/CSS/JS)
-│   └── main.py         # Application Entry Point
-├── venv/               # Virtual Environment
-├── requirements.txt    # Python Dependencies
-└── README.md           # Documentation
+│   ├── models/         # SQLAlchemy ORM Models (Farm + Base)
+│   ├── services/       # Core Business Logic (DB Client, Geometry Processor)
+│   ├── data/           # Source Excel file (farmers_data.xls)
+│   ├── static/         # Testing Frontend Dashboard (HTML/CSS/JS)
+│   └── main.py         # Application Entry Point (FastAPI + lifespan)
+├── scripts/
+│   └── migrate_to_postgres.py  # One-time data migration script
+├── docker-compose.yml  # PostGIS database (OrbStack compatible)
+├── .env.example        # Environment variable template
+└── requirements.txt    # Python Dependencies
 ```
 
 ---
 
 ## Setup & Installation
 
-### 1. Environment Setup
-Clone the repository and create a virtual environment:
+### 1. Start the Database
+Uses Docker Compose (works out of the box with OrbStack):
 
 ```bash
-# Create virtual environment
-python -m venv venv
+docker compose up -d
+```
 
-# Activate on Windows
-.\venv\Scripts\activate
+### 2. Configure Environment
+```bash
+cp .env.example .env
+# Edit .env if you use custom DB credentials
+```
 
-# Activate on Linux/Mac
-source venv/bin/activate
-
-# Install dependencies
+### 3. Create Virtual Environment & Install Dependencies
+```bash
+python3 -m venv venv
+source venv/bin/activate   # Mac/Linux
 pip install -r requirements.txt
 ```
 
-### 2. Data Preparation
-Place your source spreadsheet strictly at the following location:
-`src/data/farmers_data.xls`
+### 4. Run the Data Migration
+Loads the source Excel file into PostGIS:
 
-*Note: The system supports legacy .xls formats and dynamically searches for the 'Numbers' (Phone) and 'A' (Coordinate) columns.*
+```bash
+python scripts/migrate_to_postgres.py
+```
 
----
-
-## Running the Server
-
-Start the production-ready server using Uvicorn:
+### 5. Start the Server
+> ⚠️ **Always run from the project root directory.**
 
 ```bash
 uvicorn src.main:app --reload
 ```
 
-- **Interactive Dashboard**: [http://127.0.0.1:8000](http://127.0.0.1:8000)
+- **Testing Dashboard**: [http://127.0.0.1:8000](http://127.0.0.1:8000)
 - **Swagger API Docs**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 
 ---
 
-## API Contract
+## API Reference
 
-### Request body
-**Endpoint**: `POST /api/process_farm`  
-**Primary Key**: `phone_number` (String)
+### GET `/api/farm/{phone_number}`
+Retrieve and auto-heal geometry for a specific farmer.
 
-```json
-{
-  "phone_number": "8805508334"
-}
-```
-
-### Expected Response (RFC 7946 Compliant)
-If the data is messy, the system automatically repairs it and returns a valid `Feature` object:
-
+**Example Response (RFC 7946 Compliant):**
 ```json
 {
   "type": "Feature",
@@ -107,16 +119,36 @@ If the data is messy, the system automatically repairs it and returns a valid `F
         [75.220225, 17.937005]
       ]
     ],
-    "crs": {
-      "type": "name",
-      "properties": { "name": "EPSG:4326" }
-    }
+    "crs": { "type": "name", "properties": { "name": "EPSG:4326" } }
   },
   "properties": {
-    "status": "success",
+    "status": "success_with_fixes",
     "kvk_number": "8805508334",
-    "error_message": null
+    "fixes_applied": ["Repaired self-intersecting polygon using topology fix (buffer(0))."],
+    "error_message": null,
+    "crs": "EPSG:4326"
   }
+}
+```
+
+### POST `/api/process_and_forward`
+Heal geometry and forward the result to a downstream backend module.
+
+**Request Body:**
+```json
+{
+  "phone_number": "8805508334",
+  "target_url": "http://your-backend-module/api/receive"
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "Farm geometry processed and forwarded to backend module successfully.",
+  "target_url": "http://your-backend-module/api/receive",
+  "forwarded_payload": { ... }
 }
 ```
 

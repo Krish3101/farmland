@@ -1,13 +1,50 @@
-from fastapi import APIRouter, HTTPException
+import httpx
+from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.api.schemas import (
     FarmFeatureResponse,
-    SentinelSubmitRequest,
-    SentinelResponse,
+    ProcessAndForwardRequest,
+    ForwardResponse,
 )
+from src.services.database import get_db_session
 from src.services.db_client import fetch_farm_data
-from src.services.farm_processor import process_farm_geometry
+from src.services.farm_processor import process_farm_geometry, GeometryResult
 
 router = APIRouter()
+
+
+# ── Shared helper ─────────────────────────────────────────────────────────────
+
+async def _get_processed_farm(
+    session: AsyncSession, phone_number: str
+) -> tuple[FarmFeatureResponse, GeometryResult]:
+    """
+    Shared internal helper: fetches from PostGIS and applies Silent Healing.
+    Raises HTTPException on not-found or processing failure.
+    """
+    data = await fetch_farm_data(session, phone_number)
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No farmland record found for phone number: {phone_number}",
+        )
+
+    result = process_farm_geometry(data["geometry"], data.get("fixes_applied", []))
+    if not result.is_valid:
+        raise HTTPException(status_code=500, detail=result.error_message)
+
+    feature = FarmFeatureResponse(
+        geometry=result.processed_geometry,
+        properties={
+            "status": result.status,
+            "kvk_number": phone_number,
+            "fixes_applied": result.fixes_applied,
+            "error_message": None,
+            "crs": "EPSG:4326",
+        },
+    )
+    return feature, result
 
 
 # ── GET /api/farm/{phone_number} ──────────────────────────────────────────────
@@ -18,13 +55,13 @@ router = APIRouter()
     summary="Retrieve & auto-clean farmland geometry",
     tags=["Farmland"],
 )
-async def get_farm(phone_number: str):
+async def get_farm(
+    phone_number: str,
+    session: AsyncSession = Depends(get_db_session),
+):
     """
-    Retrieves raw coordinate data for the given phone number, applies Silent
-    Healing auto-fixes, processes the geometry with Shapely, and returns a
-    strict RFC 7946 GeoJSON Feature.
-
-    All auto-fix actions are recorded in `properties.fixes_applied`.
+    Retrieves raw coordinate data for the given phone number from PostGIS,
+    applies Silent Healing auto-fixes, and returns a strict RFC 7946 GeoJSON Feature.
 
     **Status values:**
     - `success` — data was clean, no fixes needed.
@@ -32,60 +69,55 @@ async def get_farm(phone_number: str):
 
     **Error codes:**
     - `404` — phone number not found in the database.
-    - `503` — data source file is missing.
     - `500` — unexpected internal processing error.
     """
-    # 1. Fetch + clean data (may raise 503 or 500 HTTPExceptions)
-    data = await fetch_farm_data(phone_number)
-
-    if data is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No farmland record found for phone number: {phone_number}",
-        )
-
-    geojson = data["geometry"]
-    fixes_applied = data.get("fixes_applied", [])
-
-    # 2. Process geometry — returns a GeometryResult dataclass (M-1 fix)
-    result = process_farm_geometry(geojson, fixes_applied)
-
-    if not result.is_valid:
-        raise HTTPException(status_code=500, detail=result.error_message)
-
-    # 3. Return strict RFC 7946 GeoJSON Feature (M-3 fix: all custom data in properties)
-    return FarmFeatureResponse(
-        geometry=result.processed_geometry,
-        properties={
-            "status": result.status,
-            "kvk_number": phone_number,
-            "fixes_applied": result.fixes_applied,
-            "error_message": None,
-            "crs": "EPSG:4326",
-        },
-    )
+    feature, _ = await _get_processed_farm(session, phone_number)
+    return feature
 
 
-# ── POST /api/sentinel/submit ─────────────────────────────────────────────────
+# ── POST /api/process_and_forward ─────────────────────────────────────────────
 
 @router.post(
-    "/sentinel/submit",
-    response_model=SentinelResponse,
-    summary="Submit GeoJSON payload to Remote Sensing API (simulated)",
-    tags=["Sentinel"],
+    "/process_and_forward",
+    response_model=ForwardResponse,
+    summary="Process farm geometry and forward to a backend module",
+    tags=["Integration"],
 )
-async def sentinel_submit(request: SentinelSubmitRequest):
+async def process_and_forward(
+    request: ProcessAndForwardRequest,
+    session: AsyncSession = Depends(get_db_session),
+):
     """
-    Accepts a GeoJSON Feature payload and simulates a handoff to the
-    Remote Sensing (Sentinel-2) pipeline.
+    Acts as an intelligent bridge between modules:
+    1. Fetches and heals farmland geometry from PostGIS.
+    2. Packages it as a strict RFC 7946 GeoJSON Feature.
+    3. Asynchronously forwards it via HTTP POST to the specified `target_url`.
 
-    In production this would forward the payload to an external satellite
-    imagery API. Currently returns a mocked success response.
+    If forwarding fails, returns `partial_success` with the processed payload
+    so the caller can retry or inspect the data.
     """
-    return SentinelResponse(
+    feature, _ = await _get_processed_farm(session, request.phone_number)
+
+    # Async forward to the target backend module
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                request.target_url,
+                json=feature.model_dump(),
+                timeout=10.0,
+            )
+            response.raise_for_status()
+    except Exception as e:
+        return ForwardResponse(
+            status="partial_success",
+            message=f"Geometry processed successfully, but forwarding to target failed: {str(e)}",
+            target_url=request.target_url,
+            forwarded_payload=feature,
+        )
+
+    return ForwardResponse(
         status="success",
-        message="Simulated handoff to Remote Sensing API successful.",
+        message="Farm geometry processed and forwarded to backend module successfully.",
+        target_url=request.target_url,
+        forwarded_payload=feature,
     )
-
-
-

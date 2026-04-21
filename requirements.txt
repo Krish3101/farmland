@@ -1,10 +1,18 @@
-# Core application dependencies
+# Core application (runtime) dependencies
 fastapi
 uvicorn[standard]
 pydantic
 shapely
-aiosqlite
 
-# One-time migration script only (not needed at runtime):
-#   pandas
-#   xlrd
+# Database & Infrastructure
+sqlalchemy[asyncio]
+asyncpg
+geoalchemy2
+psycopg2-binary
+python-dotenv
+httpx
+
+# One-time migration script dependencies
+# Install with: pip install pandas xlrd
+pandas
+xlrd
