@@ -1,0 +1,10 @@
+# Core application dependencies
+fastapi
+uvicorn[standard]
+pydantic
+shapely
+aiosqlite
+
+# One-time migration script only (not needed at runtime):
+#   pandas
+#   xlrd
