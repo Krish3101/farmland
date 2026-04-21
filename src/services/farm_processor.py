@@ -1,6 +1,4 @@
 from shapely.geometry import shape, mapping
-from shapely.ops import unary_union
-from shapely.validation import make_valid
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 import logging
@@ -54,8 +52,9 @@ def process_farm_geometry(
         coords = geometry_dict.get("coordinates", [[]])[0]
 
         # ── Fix 1: Lat/Lon Swap Detection ─────────────────────────────────────
-        # In GeoJSON, order is [longitude, latitude].
-        # If first coord looks like [lat, lon] (lon < 40 but lat > 60), swap.
+        # GeoJSON uses [longitude, latitude] order.
+        # If [lon, lat] fails the India bounds check but [lat, lon] passes,
+        # the values are swapped and we correct them automatically.
         if coords:
             first_lon, first_lat = coords[0][0], coords[0][1]
             if not _is_in_india(first_lon, first_lat) and _is_in_india(first_lat, first_lon):
