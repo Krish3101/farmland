@@ -8,7 +8,7 @@
 
 ## Overview
 
-The Farmland Processing Pipeline is a high-performance FastAPI microservice that queries pre-calculated GIS data from a **PostGIS Materialized View** and serves it as a strict **RFC 7946-compliant GeoJSON FeatureCollection**. By offloading all spatial coordinate math and data normalization to the database layer, the API achieves lightning-fast performance capable of scaling to millions of records.
+The Farmland Processing Pipeline is a high-performance FastAPI microservice that queries pre-calculated GIS data from a **PostGIS Materialized View** and serves it as a strict **RFC 7946-compliant GeoJSON FeatureCollection**. By offloading all spatial coordinate math and data normalization to the database layer, the API achieves high-throughput performance capable of scaling to large volumes of records.
 
 ---
 

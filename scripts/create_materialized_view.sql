@@ -70,7 +70,8 @@ WITH raw_parsed AS (
 geometries AS (
     SELECT 
         farm_id,
-        ST_GeomFromText('POLYGON((' || p1 || ',' || p2 || ',' || p3 || ',' || p4 || ',' || p1 || '))') as geometry
+        -- Group points as a MULTIPOINT and let ST_ConvexHull draw the correct outer boundary
+        ST_ConvexHull(ST_GeomFromText('MULTIPOINT(' || p1 || ',' || p2 || ',' || p3 || ',' || p4 || ')')) as geometry
     FROM raw_parsed
     WHERE p1 IS NOT NULL AND p2 IS NOT NULL AND p3 IS NOT NULL AND p4 IS NOT NULL
 )

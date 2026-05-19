@@ -125,7 +125,7 @@
             align-items: flex-start;
             gap: 8px;
         }
-        #telemetryList li::before { content: "⚡"; flex-shrink: 0; }
+        #telemetryList li::before { content: "•"; flex-shrink: 0; }
         #noFixes {
             color: var(--success);
             font-size: 0.85rem;
@@ -176,7 +176,7 @@
 <body>
 
     <header>
-        <h1>🌾 Farmland Processing Pipeline</h1>
+        <h1>Farmland Processing Pipeline</h1>
         <p>Developer Testing Dashboard — verify GET and POST endpoints</p>
     </header>
 
@@ -200,7 +200,7 @@
                         <span id="statusBadge" class="badge"></span>
                     </div>
                     <ul id="telemetryList"></ul>
-                    <p id="noFixes" class="hidden">✅ No fixes needed — data was clean.</p>
+                    <p id="noFixes" class="hidden">No fixes needed — data was clean.</p>
                 </div>
 
                 <div class="card">

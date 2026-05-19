@@ -1,19 +1,21 @@
-# Farmland Processing Pipeline 🚜🛰️
+# Farmland Processing Pipeline
 
 ## Project Overview
 
-The **Farmland Processing Pipeline** is a production-grade GIS microservice designed to ingest messy, heterogeneous farmland coordinate data and serve perfectly formatted RFC 7946 **GeoJSON (WGS84 - EPSG:4326)**.
+The **Farmland Processing Pipeline** is a production-grade GIS microservice designed to ingest heterogeneous farmland coordinate data and serve formatted RFC 7946 **GeoJSON (WGS84 - EPSG:4326)**.
 
-Recently refactored for **millions of records**, the system uses a "dumb ingestion" model where raw data is dumped into PostgreSQL, and **PostGIS** handles all the spatial conversions and coordinate math via a highly optimized **Materialized View**. Python is strictly used to serve the pre-calculated geometry, resulting in incredibly fast, scalable read performance.
+Recently refactored for **high volume records**, the system uses a bulk ingestion model where raw data is inserted into PostgreSQL, and **PostGIS** handles all the spatial conversions and coordinate mathematics via an optimized **Materialized View**. Python is strictly used to serve the pre-calculated geometry, resulting in highly performant and scalable read operations.
 
 ---
 
 ## Key Features
 
-- **🚀 Dumb Ingestion**: Rapidly loads unstructured legacy Excel data into a raw PostgreSQL table using Pandas `to_sql`.
-- **🗺️ PostGIS Materialized Views**: Automatically constructs valid polygons from disjointed string columns, formats the data to `EPSG:4326`, and natively repairs spatial anomalies.
-- **⚡ Ultra-Fast Serving**: The FastAPI layer simply queries the materialized view and formats the result as a standard `FeatureCollection` with zero coordinate math done in Python.
-- **🔄 Concurrent Refreshes**: The PostGIS Materialized view has a unique index, meaning it can be refreshed in the background without blocking reads.
+- **Bulk Data Ingestion**: Loads unstructured legacy Excel data into a raw PostgreSQL table using Pandas `to_sql`.
+- **PostGIS Materialized Views**: Automatically constructs valid polygons from disjointed string columns, formats the data to `EPSG:4326`, and natively repairs spatial anomalies.
+- **Polygon Healing**: Uses `ST_ConvexHull` to eliminate self-intersecting polygons caused by out-of-order coordinate records.
+- **High-Performance Serving**: The FastAPI layer queries the materialized view and formats the result as a standard `FeatureCollection` with zero coordinate mathematics done in Python.
+- **Concurrent Refreshes**: The PostGIS Materialized view utilizes a unique index, meaning it can be refreshed in the background without blocking read operations.
+- **Robust & Scalable**: Includes full `pytest` coverage, PostGIS connection pooling, and paginated GeoJSON endpoints.
 
 ---
 
@@ -25,8 +27,7 @@ Recently refactored for **millions of records**, the system uses a "dumb ingesti
 | Database | PostgreSQL + PostGIS |
 | DB Driver | SQLAlchemy (Async Core) + Asyncpg |
 | Infrastructure | Docker Compose |
-
-*(Note: Previous Python-based GIS dependencies like `Shapely` and `GeoAlchemy2` were removed in favor of native PostGIS processing).*
+| Testing | Pytest + httpx |
 
 ---
 
@@ -85,7 +86,7 @@ python scripts/migrate_to_postgres.py
 ```
 
 ### 5. Start the Server
-> ⚠️ **Always run from the project root directory.**
+> **Note:** Always run from the project root directory.
 
 ```bash
 uvicorn src.main:app --reload

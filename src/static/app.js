@@ -62,7 +62,7 @@ fetchBtn.addEventListener('click', async () => {
         // ── Telemetry list ────────────────────────────────────────────────────
         telemetryList.innerHTML = '';
         noFixes.classList.remove('hidden');
-        noFixes.innerHTML = '✅ Processed instantly via SQL Materialized View';
+        noFixes.innerHTML = 'Processed via SQL Materialized View';
 
         // ── Raw JSON ──────────────────────────────────────────────────────────
         rawJson.textContent = JSON.stringify(data, null, 2);
@@ -85,7 +85,7 @@ fetchBtn.addEventListener('click', async () => {
         statusBadge.className = 'badge badge-error';
         telemetryList.innerHTML = '';
         noFixes.classList.add('hidden');
-        rawJson.textContent = `❌ Error: ${err.message}`;
+        rawJson.textContent = `Error: ${err.message}`;
     } finally {
         fetchBtn.disabled = false;
         fetchBtn.textContent = 'Fetch Farm Data';
