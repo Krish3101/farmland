@@ -77,15 +77,22 @@ pip install -r requirements.txt
 Loads the raw Excel file into PostGIS and generates the Materialized View:
 
 ```bash
-# Dump raw data
-python scripts/migrate_to_postgres.py
+# Dump raw data (use --force if tables already exist)
+python scripts/migrate_to_postgres.py --force
 
 # Create Materialized View
 # Connect to your db and execute scripts/create_materialized_view.sql
 # Example: PGPASSWORD=password psql -h localhost -U user -d farmland_db -f scripts/create_materialized_view.sql
 ```
 
-### 5. Start the Server
+### 5. Run the Test Suite (Optional)
+To verify everything is working, run the integration tests:
+
+```bash
+python3 -m pytest tests/ -v
+```
+
+### 6. Start the Server
 > **Note:** Always run from the project root directory.
 
 ```bash
