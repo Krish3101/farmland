@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-The **Farmland Processing Pipeline** is a production-grade GIS microservice designed to ingest heterogeneous farmland coordinate data and serve formatted RFC 7946 **GeoJSON (WGS84 - EPSG:4326)**.
+The **Farmland Processing Pipeline** is a comprehensive GIS microservice designed to ingest heterogeneous farmland coordinate data and serve formatted RFC 7946 **GeoJSON (WGS84 - EPSG:4326)**.
 
 Recently refactored for **high volume records**, the system uses a bulk ingestion model where raw data is inserted into PostgreSQL, and **PostGIS** handles all the spatial conversions and coordinate mathematics via an optimized **Materialized View**. Python is strictly used to serve the pre-calculated geometry, resulting in highly performant and scalable read operations.
 
@@ -135,7 +135,3 @@ Retrieve all farmland data formatted as a standard GeoJSON FeatureCollection.
   ]
 }
 ```
-
----
-
-*Developed for the Krishi AI Farmland Monitoring Initiative.*

@@ -12,12 +12,6 @@ The Farmland Processing Pipeline is a high-performance FastAPI microservice that
 
 ---
 
-## Authentication
-
-None required. This is an internal developer/tooling API.
-
----
-
 ## Response Structure
 
 The successful geometry response follows the **RFC 7946 GeoJSON FeatureCollection** format. Custom metadata (such as the farmer ID) is enclosed strictly within `properties` for each `Feature`.
