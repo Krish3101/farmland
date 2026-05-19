@@ -2,26 +2,18 @@
 
 ## Project Overview
 
-The **Farmland Processing Pipeline** is a production-grade GIS microservice designed to solve the critical challenge of ingesting messy, heterogeneous farmland coordinate data from Krishi Vigyan Kendras (KVKs).
+The **Farmland Processing Pipeline** is a production-grade GIS microservice designed to ingest messy, heterogeneous farmland coordinate data and serve perfectly formatted RFC 7946 **GeoJSON (WGS84 - EPSG:4326)**.
 
-Built using **FastAPI**, **PostgreSQL/PostGIS**, and **Shapely**, the system acts as an intelligent "Silent Healing" bridge. It reads farm records from a PostGIS database, automatically repairs corrupted GPS data, and outputs perfectly formatted RFC 7946 **GeoJSON (WGS84 - EPSG:4326)**.
-
-This clean output can be consumed directly by the testing dashboard or forwarded programmatically to any downstream backend module (e.g., a Remote Sensing or ML pipeline).
+Recently refactored for **millions of records**, the system uses a "dumb ingestion" model where raw data is dumped into PostgreSQL, and **PostGIS** handles all the spatial conversions and coordinate math via a highly optimized **Materialized View**. Python is strictly used to serve the pre-calculated geometry, resulting in incredibly fast, scalable read performance.
 
 ---
 
-## Key Features (The 'Silent Healing' Pipeline)
+## Key Features
 
-The system is designed to be 100% crash-proof and resilient to real-world field data errors:
-
-- **🚀 Dynamic Parsing**: Automatically detects and reads farms with any number of coordinate points from legacy Excel spreadsheets.
-- **🧹 Data Janitor**:
-    - **Space Eradication**: Automatically strips all accidental whitespace from coordinate strings.
-    - **Decimal Auto-Injection**: Detects and fixes numbers like `185228` → `18.5228`.
-- **🔄 India Bounds Lat/Lon Swap**: If GPS coordinates appear to be outside India's geographic bounds (`6°N–38°N`, `66°E–98°E`), the system automatically detects and corrects swapped Latitude/Longitude values — a common field data entry error.
-- **🛡️ Topology Repair**: Uses `buffer(0)` to untangle self-intersecting "bowtie" polygons while **preserving the original farm shape**. Falls back to Convex Hull only as a last resort.
-- **📏 High-Precision Normalization**: All coordinates are rounded to 6 decimal places.
-- **🔗 Module Forwarding**: A dedicated endpoint accepts a `phone_number` and `target_url`, heals the data, and automatically POSTs the GeoJSON to a downstream backend module.
+- **🚀 Dumb Ingestion**: Rapidly loads unstructured legacy Excel data into a raw PostgreSQL table using Pandas `to_sql`.
+- **🗺️ PostGIS Materialized Views**: Automatically constructs valid polygons from disjointed string columns, formats the data to `EPSG:4326`, and natively repairs spatial anomalies.
+- **⚡ Ultra-Fast Serving**: The FastAPI layer simply queries the materialized view and formats the result as a standard `FeatureCollection` with zero coordinate math done in Python.
+- **🔄 Concurrent Refreshes**: The PostGIS Materialized view has a unique index, meaning it can be refreshed in the background without blocking reads.
 
 ---
 
@@ -31,10 +23,10 @@ The system is designed to be 100% crash-proof and resilient to real-world field 
 |---|---|
 | API Framework | FastAPI |
 | Database | PostgreSQL + PostGIS |
-| ORM | SQLAlchemy (Async) + GeoAlchemy2 |
-| Geometry Engine | Shapely |
-| HTTP Client | HTTPX (async forwarding) |
-| Infrastructure | Docker Compose (OrbStack) |
+| DB Driver | SQLAlchemy (Async Core) + Asyncpg |
+| Infrastructure | Docker Compose |
+
+*(Note: Previous Python-based GIS dependencies like `Shapely` and `GeoAlchemy2` were removed in favor of native PostGIS processing).*
 
 ---
 
@@ -43,15 +35,15 @@ The system is designed to be 100% crash-proof and resilient to real-world field 
 ```text
 data-pipeline/
 ├── src/
-│   ├── api/            # Pydantic Schemas and API Routes
-│   ├── models/         # SQLAlchemy ORM Models (Farm + Base)
-│   ├── services/       # Core Business Logic (DB Client, Geometry Processor)
+│   ├── api/            # API Routes (Serving GeoJSON)
+│   ├── services/       # Database Connection Setup
 │   ├── data/           # Source Excel file (farmers_data.xls)
 │   ├── static/         # Testing Frontend Dashboard (HTML/CSS/JS)
 │   └── main.py         # Application Entry Point (FastAPI + lifespan)
 ├── scripts/
-│   └── migrate_to_postgres.py  # One-time data migration script
-├── docker-compose.yml  # PostGIS database (OrbStack compatible)
+│   ├── migrate_to_postgres.py         # One-time data dump script (Pandas to SQL)
+│   └── create_materialized_view.sql   # PostGIS Spatial Conversion logic
+├── docker-compose.yml  # PostGIS database 
 ├── .env.example        # Environment variable template
 └── requirements.txt    # Python Dependencies
 ```
@@ -61,7 +53,7 @@ data-pipeline/
 ## Setup & Installation
 
 ### 1. Start the Database
-Uses Docker Compose (works out of the box with OrbStack):
+Uses Docker Compose to spin up a PostGIS database:
 
 ```bash
 docker compose up -d
@@ -80,11 +72,16 @@ source venv/bin/activate   # Mac/Linux
 pip install -r requirements.txt
 ```
 
-### 4. Run the Data Migration
-Loads the source Excel file into PostGIS:
+### 4. Run the Data Ingestion & SQL Setup
+Loads the raw Excel file into PostGIS and generates the Materialized View:
 
 ```bash
+# Dump raw data
 python scripts/migrate_to_postgres.py
+
+# Create Materialized View
+# Connect to your db and execute scripts/create_materialized_view.sql
+# Example: PGPASSWORD=password psql -h localhost -U user -d farmland_db -f scripts/create_materialized_view.sql
 ```
 
 ### 5. Start the Server
@@ -101,54 +98,33 @@ uvicorn src.main:app --reload
 
 ## API Reference
 
-### GET `/api/farm/{phone_number}`
-Retrieve and auto-heal geometry for a specific farmer.
+### GET `/api/farms/geojson`
+Retrieve all farmland data formatted as a standard GeoJSON FeatureCollection.
 
 **Example Response (RFC 7946 Compliant):**
 ```json
 {
-  "type": "Feature",
-  "geometry": {
-    "type": "Polygon",
-    "coordinates": [
-      [
-        [75.220225, 17.937005],
-        [75.22145, 17.937174],
-        [75.221415, 17.937551],
-        [75.220145, 17.93736],
-        [75.220225, 17.937005]
-      ]
-    ],
-    "crs": { "type": "name", "properties": { "name": "EPSG:4326" } }
-  },
-  "properties": {
-    "status": "success_with_fixes",
-    "kvk_number": "8805508334",
-    "fixes_applied": ["Repaired self-intersecting polygon using topology fix (buffer(0))."],
-    "error_message": null,
-    "crs": "EPSG:4326"
-  }
-}
-```
-
-### POST `/api/process_and_forward`
-Heal geometry and forward the result to a downstream backend module.
-
-**Request Body:**
-```json
-{
-  "phone_number": "8805508334",
-  "target_url": "http://your-backend-module/api/receive"
-}
-```
-
-**Response:**
-```json
-{
-  "status": "success",
-  "message": "Farm geometry processed and forwarded to backend module successfully.",
-  "target_url": "http://your-backend-module/api/receive",
-  "forwarded_payload": { ... }
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [74.951428, 18.522839],
+            [74.95174, 18.522633],
+            [74.950378, 18.522641],
+            [74.950408, 18.522625],
+            [74.951428, 18.522839]
+          ]
+        ]
+      },
+      "properties": {
+        "farm_id": "9272723049"
+      }
+    }
+  ]
 }
 ```
 

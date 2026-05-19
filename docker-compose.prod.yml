@@ -16,5 +16,17 @@ services:
       timeout: 5s
       retries: 5
 
+  app:
+    build: .
+    container_name: farmland_app
+    ports:
+      - "80:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-farmland_db}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: always
+
 volumes:
   postgis_data:

@@ -11,11 +11,14 @@ if not DATABASE_URL:
     # Fallback for development if .env is missing or empty
     DATABASE_URL = "postgresql+asyncpg://user:password@localhost:5432/farmland_db"
 
-# Create async engine
+# Create async engine with connection pool tuning
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,  # Set to True for SQL logging
     future=True,
+    pool_size=5,
+    max_overflow=10,
+    pool_pre_ping=True,  # Verify connections before use (handles stale connections)
 )
 
 # Create async session factory

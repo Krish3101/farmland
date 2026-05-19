@@ -1,123 +1,91 @@
-import httpx
-from fastapi import APIRouter, HTTPException, Depends
+import json
+import logging
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 
-from src.api.schemas import (
-    FarmFeatureResponse,
-    ProcessAndForwardRequest,
-    ForwardResponse,
-)
 from src.services.database import get_db_session
-from src.services.db_client import fetch_farm_data
-from src.services.farm_processor import process_farm_geometry, GeometryResult
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-# ── Shared helper ─────────────────────────────────────────────────────────────
-
-async def _get_processed_farm(
-    session: AsyncSession, phone_number: str
-) -> tuple[FarmFeatureResponse, GeometryResult]:
-    """
-    Shared internal helper: fetches from PostGIS and applies Silent Healing.
-    Raises HTTPException on not-found or processing failure.
-    """
-    data = await fetch_farm_data(session, phone_number)
-    if data is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No farmland record found for phone number: {phone_number}",
-        )
-
-    result = process_farm_geometry(data["geometry"], data.get("fixes_applied", []))
-    if not result.is_valid:
-        raise HTTPException(status_code=500, detail=result.error_message)
-
-    feature = FarmFeatureResponse(
-        geometry=result.processed_geometry,
-        properties={
-            "status": result.status,
-            "kvk_number": phone_number,
-            "fixes_applied": result.fixes_applied,
-            "error_message": None,
-            "crs": "EPSG:4326",
-        },
-    )
-    return feature, result
-
-
-# ── GET /api/farm/{phone_number} ──────────────────────────────────────────────
-
 @router.get(
-    "/farm/{phone_number}",
-    response_model=FarmFeatureResponse,
-    summary="Retrieve & auto-clean farmland geometry",
+    "/farms/geojson",
+    summary="Get processed farms as a standard GeoJSON FeatureCollection",
     tags=["Farmland"],
 )
-async def get_farm(
-    phone_number: str,
+async def get_farms_geojson(
+    farm_id: Optional[str] = Query(
+        None,
+        description="Optional farm ID (phone number) to filter a specific farm.",
+        examples=["8805508334"],
+    ),
+    limit: int = Query(
+        100,
+        ge=1,
+        le=1000,
+        description="Maximum number of features to return.",
+    ),
+    offset: int = Query(
+        0,
+        ge=0,
+        description="Number of features to skip (for pagination).",
+    ),
     session: AsyncSession = Depends(get_db_session),
 ):
     """
-    Retrieves raw coordinate data for the given phone number from PostGIS,
-    applies Silent Healing auto-fixes, and returns a strict RFC 7946 GeoJSON Feature.
+    Returns farms from the `processed_farm_geojson` materialized view
+    as a standard GeoJSON FeatureCollection. All spatial processing is
+    handled entirely within PostGIS.
 
-    **Status values:**
-    - `success` — data was clean, no fixes needed.
-    - `success_with_fixes` — one or more auto-fixes were applied.
-
-    **Error codes:**
-    - `404` — phone number not found in the database.
-    - `500` — unexpected internal processing error.
+    - **farm_id**: Filter by a specific farm ID (phone number).
+    - **limit**: Max features per page (default 100, max 1000).
+    - **offset**: Skip N features for pagination.
     """
-    feature, _ = await _get_processed_farm(session, phone_number)
-    return feature
-
-
-# ── POST /api/process_and_forward ─────────────────────────────────────────────
-
-@router.post(
-    "/process_and_forward",
-    response_model=ForwardResponse,
-    summary="Process farm geometry and forward to a backend module",
-    tags=["Integration"],
-)
-async def process_and_forward(
-    request: ProcessAndForwardRequest,
-    session: AsyncSession = Depends(get_db_session),
-):
-    """
-    Acts as an intelligent bridge between modules:
-    1. Fetches and heals farmland geometry from PostGIS.
-    2. Packages it as a strict RFC 7946 GeoJSON Feature.
-    3. Asynchronously forwards it via HTTP POST to the specified `target_url`.
-
-    If forwarding fails, returns `partial_success` with the processed payload
-    so the caller can retry or inspect the data.
-    """
-    feature, _ = await _get_processed_farm(session, request.phone_number)
-
-    # Async forward to the target backend module
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                request.target_url,
-                json=feature.model_dump(),
-                timeout=10.0,
+        if farm_id:
+            query = text(
+                "SELECT farm_id, geojson FROM processed_farm_geojson "
+                "WHERE farm_id = :farm_id"
             )
-            response.raise_for_status()
-    except Exception as e:
-        return ForwardResponse(
-            status="partial_success",
-            message=f"Geometry processed successfully, but forwarding to target failed: {str(e)}",
-            target_url=request.target_url,
-            forwarded_payload=feature,
-        )
+            result = await session.execute(query, {"farm_id": farm_id})
+        else:
+            query = text(
+                "SELECT farm_id, geojson FROM processed_farm_geojson "
+                "ORDER BY farm_id LIMIT :limit OFFSET :offset"
+            )
+            result = await session.execute(query, {"limit": limit, "offset": offset})
 
-    return ForwardResponse(
-        status="success",
-        message="Farm geometry processed and forwarded to backend module successfully.",
-        target_url=request.target_url,
-        forwarded_payload=feature,
-    )
+        features = []
+        for row in result.all():
+            farm_id_val, geojson_data = row
+
+            # The geojson column could be returned as a dict or string depending on the driver
+            geometry = geojson_data if isinstance(geojson_data, dict) else json.loads(geojson_data)
+
+            # Format directly into a standard GeoJSON Feature
+            feature = {
+                "type": "Feature",
+                "geometry": geometry,
+                "properties": {
+                    "farm_id": farm_id_val
+                }
+            }
+            features.append(feature)
+
+        feature_collection = {
+            "type": "FeatureCollection",
+            "features": features
+        }
+
+        return feature_collection
+
+    except Exception as exc:
+        logger.error(f"Error fetching geojson data: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail="Could not retrieve processed farm GeoJSON."
+        )

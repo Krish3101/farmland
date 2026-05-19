@@ -1,6 +1,6 @@
 # Farmland Processing Pipeline — API Reference
 
-**Version:** 2.0.0  
+**Version:** 4.0.0  
 **Base URL:** `http://localhost:8000`  
 **Interactive Docs:** `http://localhost:8000/docs` (Swagger UI)
 
@@ -8,7 +8,7 @@
 
 ## Overview
 
-The Farmland Processing Pipeline is a FastAPI microservice that loads raw farmland coordinate data from an Excel source, applies **Silent Healing** auto-fixes, processes the geometry through Shapely, and returns a strict **RFC 7946-compliant GeoJSON Feature**. Every auto-fix applied is recorded in a `fixes_applied` telemetry array inside the response `properties`.
+The Farmland Processing Pipeline is a high-performance FastAPI microservice that queries pre-calculated GIS data from a **PostGIS Materialized View** and serves it as a strict **RFC 7946-compliant GeoJSON FeatureCollection**. By offloading all spatial coordinate math and data normalization to the database layer, the API achieves lightning-fast performance capable of scaling to millions of records.
 
 ---
 
@@ -18,25 +18,25 @@ None required. This is an internal developer/tooling API.
 
 ---
 
-## Common Response Structure
+## Response Structure
 
-All successful geometry responses follow the **RFC 7946 GeoJSON Feature** format. All custom metadata is enclosed strictly within `properties` — no custom fields appear at the Feature root level.
+The successful geometry response follows the **RFC 7946 GeoJSON FeatureCollection** format. Custom metadata (such as the farmer ID) is enclosed strictly within `properties` for each `Feature`.
 
 ```json
 {
-  "type": "Feature",
-  "geometry": {
-    "type": "Polygon",
-    "coordinates": [[[lon, lat], ...]],
-    "crs": { "type": "name", "properties": { "name": "EPSG:4326" } }
-  },
-  "properties": {
-    "status": "success | success_with_fixes",
-    "kvk_number": "9011743132",
-    "fixes_applied": ["..."],
-    "error_message": null,
-    "crs": "EPSG:4326"
-  }
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[lon, lat], ...]]
+      },
+      "properties": {
+        "farm_id": "9011743132"
+      }
+    }
+  ]
 }
 ```
 
@@ -46,65 +46,71 @@ All successful geometry responses follow the **RFC 7946 GeoJSON Feature** format
 
 ---
 
-### `GET /api/farm/{phone_number}`
+### `GET /health`
 
-Retrieves, cleans, and returns the processed GeoJSON polygon for a given farmer identified by their phone number.
-
-#### Path Parameters
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `phone_number` | `string` | ✅ | The farmer's registered phone number (KVK number). |
-
-#### Silent Healing Telemetry
-
-The pipeline applies the following auto-fixes silently and records each action in `properties.fixes_applied`:
-
-| Fix | Trigger Condition | Telemetry Message |
-|---|---|---|
-| Space removal | A coordinate cell contains whitespace | `"Removed accidental spaces from coordinates."` |
-| Decimal injection | A coordinate segment has no `.` character | `"Injected missing decimal point."` |
-| Convex Hull repair | Shapely reports `geom.is_valid == False` | `"Applied Convex Hull to repair self-intersecting polygon."` |
-
-If no fixes were needed, `properties.fixes_applied` will be an empty array `[]` and `properties.status` will be `"success"`.
-
-#### Status Values
-
-| Status | Meaning |
-|---|---|
-| `success` | Data was clean; no fixes were applied. |
-| `success_with_fixes` | One or more auto-fixes were applied. |
+Returns the health status of the API and its database connection.
 
 #### Success Response — `200 OK`
 
 ```json
 {
-  "type": "Feature",
-  "geometry": {
-    "type": "Polygon",
-    "coordinates": [
-      [
-        [78.456123, 17.234567],
-        [78.461234, 17.238901],
-        [78.458765, 17.241234],
-        [78.456123, 17.234567]
-      ]
-    ],
-    "crs": {
-      "type": "name",
-      "properties": { "name": "EPSG:4326" }
+  "status": "healthy",
+  "database": "connected",
+  "version": "4.0.0"
+}
+```
+
+---
+
+### `GET /api/farms/geojson`
+
+Retrieves processed farmland geometries as a unified `FeatureCollection`.
+
+#### Query Parameters
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `farm_id` | `string` | `null` | Optional. Filter by a specific farm ID (phone number). |
+| `limit` | `integer` | `100` | Max features per page (1–1000). Ignored when `farm_id` is set. |
+| `offset` | `integer` | `0` | Number of features to skip. Ignored when `farm_id` is set. |
+
+#### Performance
+This endpoint directly queries the `processed_farm_geojson` materialized view and returns the pre-formatted `geojson` strings, avoiding any heavy Python spatial transformations.
+
+#### Example — Fetch a specific farm
+```bash
+curl http://localhost:8000/api/farms/geojson?farm_id=8805508334
+```
+
+#### Example — Paginated fetch
+```bash
+curl "http://localhost:8000/api/farms/geojson?limit=10&offset=0"
+```
+
+#### Success Response — `200 OK`
+
+```json
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [78.456123, 17.234567],
+            [78.461234, 17.238901],
+            [78.458765, 17.241234],
+            [78.456123, 17.234567]
+          ]
+        ]
+      },
+      "properties": {
+        "farm_id": "9011743132"
+      }
     }
-  },
-  "properties": {
-    "status": "success_with_fixes",
-    "kvk_number": "9011743132",
-    "fixes_applied": [
-      "Injected missing decimal point.",
-      "Removed accidental spaces from coordinates."
-    ],
-    "error_message": null,
-    "crs": "EPSG:4326"
-  }
+  ]
 }
 ```
 
@@ -112,9 +118,8 @@ If no fixes were needed, `properties.fixes_applied` will be an empty array `[]` 
 
 | HTTP Code | When | `detail` Example |
 |---|---|---|
-| `404 Not Found` | Phone number not found in database | `"No farmland record found for phone number: 1234567890"` |
-| `503 Service Unavailable` | `farmers_data.xls` file is missing | `"Data source unavailable. The farmers_data.xls file is missing."` |
-| `500 Internal Server Error` | Unexpected processing failure | `"Internal error while processing farm data: ..."` |
+| `422 Unprocessable Entity` | Invalid query parameters (e.g., limit=0) | `"Input should be greater than or equal to 1"` |
+| `500 Internal Server Error` | Database connection failure or query error | `"Could not retrieve processed farm GeoJSON."` |
 
 All error responses follow FastAPI's standard format:
 ```json
@@ -123,56 +128,16 @@ All error responses follow FastAPI's standard format:
 
 ---
 
-### `POST /api/sentinel/submit`
-
-Accepts a processed GeoJSON Feature payload and simulates a handoff to the Remote Sensing (Sentinel-2) satellite imagery pipeline.
-
-> **Note:** This endpoint is currently mocked. In production, it would forward the payload to an external satellite API.
-
-#### Request Body
-
-```json
-{
-  "geojson_payload": {
-    "type": "Feature",
-    "geometry": { "..." : "..." },
-    "properties": { "..." : "..." }
-  }
-}
-```
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `geojson_payload` | `object` | ✅ | The full GeoJSON Feature object returned by `GET /api/farm/{phone_number}`. |
-
-#### Success Response — `200 OK`
-
-```json
-{
-  "status": "success",
-  "message": "Simulated handoff to Remote Sensing API successful."
-}
-```
-
----
-
-### `POST /api/process_farm` *(Deprecated)*
-
-> ⚠️ **Deprecated.** This legacy endpoint is maintained for backward compatibility only. Use `GET /api/farm/{phone_number}` instead.
-
-Accepts a JSON body `{ "phone_number": "..." }` and returns the same GeoJSON Feature response as the GET endpoint.
-
----
-
 ## Running the Service
 
 ```bash
 # From the project root
-python -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 | URL | Purpose |
 |---|---|
 | `http://localhost:8000` | Developer Testing Dashboard |
+| `http://localhost:8000/health` | Health Check Endpoint |
 | `http://localhost:8000/docs` | Swagger UI (interactive docs) |
 | `http://localhost:8000/redoc` | ReDoc documentation |
