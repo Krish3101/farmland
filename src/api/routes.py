@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
 from src.services.database import get_db_session
+from src.api.auth import verify_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,7 @@ router = APIRouter()
     "/farms/geojson",
     summary="Get processed farms as a standard GeoJSON FeatureCollection",
     tags=["Farmland"],
+    dependencies=[Depends(verify_api_key)],
 )
 async def get_farms_geojson(
     farm_id: Optional[str] = Query(

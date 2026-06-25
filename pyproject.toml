@@ -1,0 +1,26 @@
+[project]
+name = "farmland-processing-pipeline"
+version = "4.0.0"
+description = "Farmland Processing Pipeline API"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.22.0",
+    "pydantic>=2.0.0",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "asyncpg>=0.28.0",
+    "psycopg2-binary>=2.9.0",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.24.0",
+    "pandas>=2.0.0",
+    "xlrd>=2.0.1",
+    "aiosqlite>=0.22.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "anyio>=3.7.0",
+]

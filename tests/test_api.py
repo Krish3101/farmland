@@ -42,12 +42,30 @@ async def test_root_serves_dashboard(client: AsyncClient):
     assert "text/html" in response.headers["content-type"]
 
 
+# ── Authentication ────────────────────────────────────────────────────────────
+
+@pytest.mark.anyio
+async def test_geojson_unauthorized_missing_key(client: AsyncClient):
+    """GET /api/farms/geojson without X-API-Key should return 401 Unauthorized."""
+    response = await client.get("/api/farms/geojson")
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or missing API Key."
+
+
+@pytest.mark.anyio
+async def test_geojson_unauthorized_invalid_key(client: AsyncClient):
+    """GET /api/farms/geojson with incorrect X-API-Key should return 401 Unauthorized."""
+    response = await client.get("/api/farms/geojson", headers={"X-API-Key": "wrong-key"})
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or missing API Key."
+
+
 # ── GeoJSON Endpoint — All Farms ──────────────────────────────────────────────
 
 @pytest.mark.anyio
 async def test_geojson_returns_feature_collection(client: AsyncClient):
     """GET /api/farms/geojson should return a valid GeoJSON FeatureCollection."""
-    response = await client.get("/api/farms/geojson")
+    response = await client.get("/api/farms/geojson", headers={"X-API-Key": "test-api-key"})
     assert response.status_code == 200
     data = response.json()
     assert data["type"] == "FeatureCollection"
@@ -57,7 +75,7 @@ async def test_geojson_returns_feature_collection(client: AsyncClient):
 @pytest.mark.anyio
 async def test_geojson_features_have_correct_structure(client: AsyncClient):
     """Each Feature should have type, geometry, and properties with farm_id."""
-    response = await client.get("/api/farms/geojson")
+    response = await client.get("/api/farms/geojson", headers={"X-API-Key": "test-api-key"})
     assert response.status_code == 200
     data = response.json()
     for feature in data["features"]:
@@ -72,7 +90,7 @@ async def test_geojson_features_have_correct_structure(client: AsyncClient):
 @pytest.mark.anyio
 async def test_geojson_geometry_types_are_valid(client: AsyncClient):
     """Geometry types should be either Polygon or MultiPolygon."""
-    response = await client.get("/api/farms/geojson")
+    response = await client.get("/api/farms/geojson", headers={"X-API-Key": "test-api-key"})
     assert response.status_code == 200
     data = response.json()
     valid_types = {"Polygon", "MultiPolygon"}
@@ -85,7 +103,7 @@ async def test_geojson_geometry_types_are_valid(client: AsyncClient):
 @pytest.mark.anyio
 async def test_geojson_filter_by_farm_id(client: AsyncClient):
     """GET /api/farms/geojson?farm_id=X should return only that farm."""
-    response = await client.get("/api/farms/geojson?farm_id=8805508334")
+    response = await client.get("/api/farms/geojson?farm_id=8805508334", headers={"X-API-Key": "test-api-key"})
     assert response.status_code == 200
     data = response.json()
     assert data["type"] == "FeatureCollection"
@@ -96,7 +114,7 @@ async def test_geojson_filter_by_farm_id(client: AsyncClient):
 @pytest.mark.anyio
 async def test_geojson_filter_nonexistent_farm_id(client: AsyncClient):
     """Filtering by a non-existent farm_id should return an empty FeatureCollection."""
-    response = await client.get("/api/farms/geojson?farm_id=0000000000")
+    response = await client.get("/api/farms/geojson?farm_id=0000000000", headers={"X-API-Key": "test-api-key"})
     assert response.status_code == 200
     data = response.json()
     assert data["type"] == "FeatureCollection"
@@ -108,7 +126,7 @@ async def test_geojson_filter_nonexistent_farm_id(client: AsyncClient):
 @pytest.mark.anyio
 async def test_geojson_pagination_limit(client: AsyncClient):
     """Limit parameter should cap the number of returned features."""
-    response = await client.get("/api/farms/geojson?limit=2")
+    response = await client.get("/api/farms/geojson?limit=2", headers={"X-API-Key": "test-api-key"})
     assert response.status_code == 200
     data = response.json()
     assert len(data["features"]) <= 2
@@ -117,7 +135,7 @@ async def test_geojson_pagination_limit(client: AsyncClient):
 @pytest.mark.anyio
 async def test_geojson_pagination_offset(client: AsyncClient):
     """Offset should skip features — offset beyond total should return empty."""
-    response = await client.get("/api/farms/geojson?limit=100&offset=9999")
+    response = await client.get("/api/farms/geojson?limit=100&offset=9999", headers={"X-API-Key": "test-api-key"})
     assert response.status_code == 200
     data = response.json()
     assert len(data["features"]) == 0
@@ -126,17 +144,17 @@ async def test_geojson_pagination_offset(client: AsyncClient):
 @pytest.mark.anyio
 async def test_geojson_pagination_invalid_limit(client: AsyncClient):
     """Invalid limit (< 1 or > 1000) should return 422 validation error."""
-    response = await client.get("/api/farms/geojson?limit=0")
+    response = await client.get("/api/farms/geojson?limit=0", headers={"X-API-Key": "test-api-key"})
     assert response.status_code == 422
 
-    response = await client.get("/api/farms/geojson?limit=9999")
+    response = await client.get("/api/farms/geojson?limit=9999", headers={"X-API-Key": "test-api-key"})
     assert response.status_code == 422
 
 
 @pytest.mark.anyio
 async def test_geojson_pagination_invalid_offset(client: AsyncClient):
     """Negative offset should return 422 validation error."""
-    response = await client.get("/api/farms/geojson?offset=-1")
+    response = await client.get("/api/farms/geojson?offset=-1", headers={"X-API-Key": "test-api-key"})
     assert response.status_code == 422
 
 

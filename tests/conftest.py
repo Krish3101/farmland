@@ -5,7 +5,13 @@ Uses a NullPool engine to avoid asyncpg event loop conflicts in testing.
 Each test gets a fresh connection from the pool, with no cross-loop issues.
 """
 
+import os
 import pytest
+
+# Set test environment variables
+os.environ["API_KEY"] = "test-api-key"
+os.environ["ALLOWED_ORIGINS"] = "http://testserver"
+
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.pool import NullPool
 from httpx import AsyncClient, ASGITransport
