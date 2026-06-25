@@ -115,6 +115,7 @@ async def health_check(session: AsyncSession = Depends(get_db_session)):
         return {
             "status": "unhealthy",
             "database": "disconnected",
+            "version": app.version,
             "error": str(exc),
         }
 

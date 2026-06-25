@@ -4,6 +4,7 @@ let farmLayer = null;
 
 // ─── DOM refs ────────────────────────────────────────────────────────────────
 const phoneInput     = document.getElementById('phoneInput');
+const apiKeyInput    = document.getElementById('apiKeyInput');
 const fetchBtn       = document.getElementById('fetchBtn');
 const resultsSection = document.getElementById('resultsSection');
 const telemetryList  = document.getElementById('telemetryList');
@@ -32,7 +33,12 @@ fetchBtn.addEventListener('click', async () => {
 
     try {
         // Query the server-side filter — avoids fetching the entire collection
-        const response = await fetch(`/api/farms/geojson?farm_id=${encodeURIComponent(phoneNumber)}`);
+        const apiKey = apiKeyInput.value.trim();
+        const response = await fetch(`/api/farms/geojson?farm_id=${encodeURIComponent(phoneNumber)}`, {
+            headers: {
+                'X-API-Key': apiKey
+            }
+        });
 
         if (!response.ok) {
             let detail = `Server returned ${response.status}`;
