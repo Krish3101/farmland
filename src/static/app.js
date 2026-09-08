@@ -1,18 +1,26 @@
-// Global state
+// Global Leaflet map state
 let leafletMap = null;
 let farmLayer = null;
 
-// ─── DOM refs ────────────────────────────────────────────────────────────────
-const phoneInput     = document.getElementById('phoneInput');
-const apiKeyInput    = document.getElementById('apiKeyInput');
-const fetchBtn       = document.getElementById('fetchBtn');
+// DOM elements
+const phoneInput = document.getElementById('phoneInput');
+const apiKeyInput = document.getElementById('apiKeyInput');
+const fetchBtn = document.getElementById('fetchBtn');
+const errorAlert = document.getElementById('errorAlert');
 const resultsSection = document.getElementById('resultsSection');
-const telemetryList  = document.getElementById('telemetryList');
-const noFixes        = document.getElementById('noFixes');
-const rawJson        = document.getElementById('rawJson');
-const statusBadge    = document.getElementById('statusBadge');
+const rawJson = document.getElementById('rawJson');
 
-// ─── Leaflet map (singleton) ─────────────────────────────────────────────────
+function showError(message) {
+    errorAlert.textContent = message;
+    errorAlert.classList.remove('hidden');
+    resultsSection.classList.add('hidden');
+}
+
+function clearError() {
+    errorAlert.textContent = '';
+    errorAlert.classList.add('hidden');
+}
+
 function initMap() {
     if (leafletMap) return;
     leafletMap = L.map('map').setView([20.5937, 78.9629], 5);
@@ -22,83 +30,99 @@ function initMap() {
     }).addTo(leafletMap);
 }
 
-// ─── GET logic ───────────────────────────────────────────────────────────────
-fetchBtn.addEventListener('click', async () => {
-    const phoneNumber = phoneInput.value.trim();
-    if (!phoneNumber) { alert('Please enter a phone number.'); return; }
+async function handleFetch() {
+    const farmId = phoneInput.value.trim();
+    const apiKey = apiKeyInput.value.trim();
 
+    // FR-21: An empty identifier is rejected before any request is made
+    if (!farmId) {
+        showError('Please enter a farm identifier.');
+        phoneInput.focus();
+        return;
+    }
+
+    clearError();
     fetchBtn.disabled = true;
     fetchBtn.textContent = 'Fetching…';
     resultsSection.classList.add('hidden');
 
     try {
-        // Query the server-side filter — avoids fetching the entire collection
-        const apiKey = apiKeyInput.value.trim();
-        const response = await fetch(`/api/farms/geojson?farm_id=${encodeURIComponent(phoneNumber)}`, {
-            headers: {
-                'X-API-Key': apiKey
-            }
+        // FR-21: Server-side filtered lookup
+        const headers = {};
+        if (apiKey) {
+            headers['X-API-Key'] = apiKey;
+        }
+
+        const response = await fetch(`/api/farms/geojson?farm_id=${encodeURIComponent(farmId)}`, {
+            headers: headers
         });
 
         if (!response.ok) {
-            let detail = `Server returned ${response.status}`;
+            let errorDetail = `Server returned status ${response.status}`;
             try {
-                const errBody = await response.json();
-                detail = errBody.detail || detail;
-            } catch (_) { }
-            throw new Error(detail);
+                const body = await response.json();
+                if (body && body.detail) {
+                    errorDetail = body.detail;
+                }
+            } catch (_) {}
+            throw new Error(errorDetail);
         }
 
         const featureCollection = await response.json();
-        
-        // The server already filtered by farm_id — grab the first result
-        const data = featureCollection.features[0];
+        const feature = featureCollection.features && featureCollection.features[0];
 
-        if (!data) {
-            throw new Error(`No farmland record found for phone number: ${phoneNumber}`);
+        // FR-24: "No record found" shown as visible error state
+        if (!feature) {
+            showError(`No farm record found for identifier: ${farmId}`);
+            return;
         }
 
-        // Reveal results panel
+        // Display results
         resultsSection.classList.remove('hidden');
 
-        // ── Status badge ──────────────────────────────────────────────────────
-        statusBadge.textContent = 'PostGIS Native Healing';
-        statusBadge.className = 'badge badge-success';
+        // FR-23: Display raw response alongside map
+        rawJson.textContent = JSON.stringify(featureCollection, null, 2);
 
-        // ── Telemetry list ────────────────────────────────────────────────────
-        telemetryList.innerHTML = '';
-        noFixes.classList.remove('hidden');
-        noFixes.innerHTML = 'Processed via SQL Materialized View';
-
-        // ── Raw JSON ──────────────────────────────────────────────────────────
-        rawJson.textContent = JSON.stringify(data, null, 2);
-
-        // ── Leaflet map ───────────────────────────────────────────────────────
+        // FR-22: Render boundary on map and fit to extent
         initMap();
-        if (farmLayer) { leafletMap.removeLayer(farmLayer); farmLayer = null; }
+        if (farmLayer) {
+            leafletMap.removeLayer(farmLayer);
+            farmLayer = null;
+        }
 
-        if (data.geometry) {
-            farmLayer = L.geoJSON(data, {
-                style: { color: '#4f8ef7', weight: 2, fillColor: '#4f8ef7', fillOpacity: 0.2 },
+        if (feature.geometry) {
+            farmLayer = L.geoJSON(feature, {
+                style: {
+                    color: '#4f8ef7',
+                    weight: 2,
+                    fillColor: '#4f8ef7',
+                    fillOpacity: 0.25
+                }
             }).addTo(leafletMap);
-            leafletMap.fitBounds(farmLayer.getBounds(), { padding: [30, 30] });
+
+            const bounds = farmLayer.getBounds();
+            if (bounds.isValid()) {
+                leafletMap.fitBounds(bounds, { padding: [30, 30] });
+            }
         }
 
     } catch (err) {
-        // Visible error state
-        resultsSection.classList.remove('hidden');
-        statusBadge.textContent = 'error';
-        statusBadge.className = 'badge badge-error';
-        telemetryList.innerHTML = '';
-        noFixes.classList.add('hidden');
-        rawJson.textContent = `Error: ${err.message}`;
+        // FR-24: Surface authorization, server, and network errors visibly
+        showError(`Error: ${err.message}`);
     } finally {
+        // FR-24: Controls are re-enabled after every attempt
         fetchBtn.disabled = false;
         fetchBtn.textContent = 'Fetch Farm Data';
     }
+}
+
+// Event Listeners
+fetchBtn.addEventListener('click', handleFetch);
+
+phoneInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleFetch();
 });
 
-// ─── Enter key ───────────────────────────────────────────────────────────────
-phoneInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') fetchBtn.click();
+apiKeyInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleFetch();
 });

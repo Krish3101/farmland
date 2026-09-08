@@ -1,9 +1,10 @@
 import os
 import sys
+import argparse
 import logging
 from pathlib import Path
 import pandas as pd
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 from dotenv import load_dotenv
 
 # Add project root to sys.path
@@ -16,57 +17,114 @@ load_dotenv(PROJECT_ROOT / ".env")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-EXCEL_PATH = PROJECT_ROOT / "src" / "data" / "farmers_data.xls"
+DEFAULT_EXCEL_PATH = PROJECT_ROOT / "src" / "data" / "farmers_data.xls"
+DEFAULT_DB_URL = os.getenv(
+    "DATABASE_URL", 
+    "postgresql+asyncpg://user:password@127.0.0.1:5434/farmland_db"
+)
 
 
-def migrate(force: bool = False):
-    # Sync database URL for pandas
-    async_db_url = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:password@localhost:5432/farmland_db")
-    sync_db_url = async_db_url.replace("+asyncpg", "+psycopg2")
-    if sync_db_url.startswith("postgresql://"):
-        # Ensure it uses psycopg2 explicitly or fallback to default
-        pass
+def get_sync_db_url(url: str) -> str:
+    """Ensure database URL uses psycopg2 driver for synchronous pandas operations."""
+    if "+asyncpg" in url:
+        return url.replace("+asyncpg", "+psycopg2")
+    if url.startswith("postgresql://") and "+psycopg2" not in url:
+        return url.replace("postgresql://", "postgresql+psycopg2://", 1)
+    return url
+
+
+def migrate(excel_path: Path, db_url: str, force: bool = False):
+    """
+    Ingests source spreadsheet records into the raw_farmers_data PostgreSQL table.
     
-    engine = create_engine(sync_db_url)
+    Preserves source structure as-is. If the table already exists, requires operator
+    confirmation (or --force). When dependent objects like materialized views exist,
+    truncates and appends so read traffic remains uninterrupted.
+    """
+    if not excel_path.exists():
+        logger.error("Source file not found at %s. No data was written.", excel_path)
+        sys.exit(1)
 
-    # Safety check — warn if the table already exists (avoid accidental overwrites)
-    inspector = inspect(engine)
-    if inspector.has_table("raw_farmers_data") and not force:
+    logger.info("Reading source spreadsheet from %s ...", excel_path)
+    try:
+        df = pd.read_excel(excel_path, engine="xlrd")
+    except Exception as exc:
+        logger.error("Failed to parse source file '%s': %s. No data was written.", excel_path, exc)
+        sys.exit(1)
+
+    rows_count, cols_count = len(df), len(df.columns)
+    logger.info("Successfully read %d rows and %d columns.", rows_count, cols_count)
+
+    sync_url = get_sync_db_url(db_url)
+    engine = create_engine(sync_url)
+
+    # Safety check (FR-2) — confirm before replacing existing raw data
+    try:
+        inspector = inspect(engine)
+        table_exists = inspector.has_table("raw_farmers_data")
+    except Exception as exc:
+        logger.error("Could not connect to database: %s", exc)
+        sys.exit(1)
+
+    if table_exists and not force:
         logger.warning(
             "Table 'raw_farmers_data' already exists. "
-            "This will DROP and RECREATE the table, potentially orphaning the materialized view. "
-            "Run with --force to confirm, or refresh the materialized view afterwards."
+            "Ingestion will replace the raw data, leaving the processed dataset stale until refreshed."
         )
-        confirm = input("Proceed? [y/N]: ").strip().lower()
+        try:
+            confirm = input("Proceed with replacement? [y/N]: ").strip().lower()
+        except EOFError:
+            confirm = "n"
         if confirm != "y":
-            logger.info("Migration aborted.")
+            logger.info("Migration aborted by operator. Raw data left untouched.")
             return
 
-    if not EXCEL_PATH.exists():
-        logger.error("Excel file not found at %s", EXCEL_PATH)
-        return
-
-    logger.info("Reading %s ...", EXCEL_PATH)
+    logger.info("Writing raw records to 'raw_farmers_data' table...")
     try:
-        df = pd.read_excel(EXCEL_PATH, engine="xlrd")
+        if table_exists:
+            # Truncate existing rows and append to preserve schema & dependent materialized views
+            with engine.begin() as conn:
+                conn.execute(text("TRUNCATE TABLE raw_farmers_data;"))
+            df.to_sql(name="raw_farmers_data", con=engine, if_exists="append", index=False)
+        else:
+            # Table does not exist yet; create it directly
+            df.to_sql(name="raw_farmers_data", con=engine, if_exists="replace", index=False)
     except Exception as exc:
-        logger.error("Failed to read Excel file: %s", exc)
-        return
+        logger.error("Failed to write data to 'raw_farmers_data': %s", exc)
+        sys.exit(1)
 
-    logger.info("Read %d rows, %d columns.", len(df), len(df.columns))
-
-    # Ingest the dataframe to PostgreSQL table
-    logger.info("Dumping dataframe to 'raw_farmers_data' table...")
-    df.to_sql(name="raw_farmers_data", con=engine, if_exists="replace", index=False)
-    
     logger.info("Migration to raw_farmers_data complete.")
     logger.info(
-        "REMINDER: If the materialized view exists, refresh it with:\n"
-        "  PGPASSWORD=password psql -h localhost -U user -d farmland_db "
+        "REMINDER: Replacing raw data leaves the processed dataset stale. Refresh it with:\n"
+        "  PGPASSWORD=password psql -h localhost -p 5434 -U user -d farmland_db "
         "-c 'REFRESH MATERIALIZED VIEW CONCURRENTLY processed_farm_geojson;'"
     )
 
 
+def main():
+    parser = argparse.ArgumentParser(
+        description="Load source farmland spreadsheet into raw PostgreSQL storage."
+    )
+    parser.add_argument(
+        "-f", "--file",
+        type=Path,
+        default=DEFAULT_EXCEL_PATH,
+        help=f"Path to source Excel file (default: {DEFAULT_EXCEL_PATH})",
+    )
+    parser.add_argument(
+        "-d", "--db-url",
+        type=str,
+        default=DEFAULT_DB_URL,
+        help="Database connection URL (default: from DATABASE_URL env or port 5434)",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Bypass interactive confirmation when raw_farmers_data table already exists",
+    )
+    args = parser.parse_args()
+    migrate(excel_path=args.file, db_url=args.db_url, force=args.force)
+
+
 if __name__ == "__main__":
-    force_flag = "--force" in sys.argv
-    migrate(force=force_flag)
+    main()

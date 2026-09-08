@@ -9,7 +9,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
     # Fallback for development if .env is missing or empty
-    DATABASE_URL = "postgresql+asyncpg://user:password@localhost:5432/farmland_db"
+    DATABASE_URL = "postgresql+asyncpg://user:password@127.0.0.1:5434/farmland_db"
 
 # Create async engine with connection pool tuning
 engine = create_async_engine(

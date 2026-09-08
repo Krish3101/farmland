@@ -27,7 +27,7 @@
             --error: #ef4444;
             --text: #e2e8f0;
             --muted: #64748b;
-            --mono: 'Courier New', monospace;
+            --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
         }
 
         body {
@@ -91,13 +91,27 @@
         .btn-primary { background: var(--accent); color: #fff; }
         .btn-primary:hover { background: var(--accent-hover); }
         .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-        .btn-success { background: var(--success); color: #fff; margin-top: 20px; }
-        .btn-success:hover { background: #16a34a; }
+
+        .error-banner {
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.35);
+            color: #fca5a5;
+            padding: 14px 18px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
 
         .results-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 20px;
+        }
+        @media (max-width: 900px) {
+            .results-grid { grid-template-columns: 1fr; }
         }
 
         .section-label {
@@ -107,31 +121,6 @@
             letter-spacing: 0.08em;
             color: var(--muted);
             margin-bottom: 10px;
-        }
-
-        #telemetryList {
-            list-style: none;
-            padding: 0;
-        }
-        #telemetryList li {
-            padding: 8px 12px;
-            border-radius: 6px;
-            background: rgba(245, 158, 11, 0.1);
-            border: 1px solid rgba(245, 158, 11, 0.25);
-            color: var(--warning);
-            font-size: 0.85rem;
-            margin-bottom: 6px;
-            display: flex;
-            align-items: flex-start;
-            gap: 8px;
-        }
-        #telemetryList li::before { content: "•"; flex-shrink: 0; }
-        #noFixes {
-            color: var(--success);
-            font-size: 0.85rem;
-            display: flex;
-            align-items: center;
-            gap: 6px;
         }
 
         #rawJson {
@@ -144,9 +133,8 @@
             line-height: 1.5;
             color: #a5b4fc;
             overflow: auto;
-            max-height: 220px;
+            max-height: 400px;
             white-space: pre;
-            margin-top: 14px;
         }
 
         #map {
@@ -156,20 +144,6 @@
             background: #0d1117;
         }
 
-        .badge {
-            display: inline-block;
-            padding: 3px 10px;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-left: 10px;
-        }
-        .badge-success { background: rgba(34,197,94,0.15); color: var(--success); border: 1px solid rgba(34,197,94,0.3); }
-        .badge-warning { background: rgba(245,158,11,0.15); color: var(--warning); border: 1px solid rgba(245,158,11,0.3); }
-        .badge-error   { background: rgba(239,68,68,0.15);  color: var(--error);   border: 1px solid rgba(239,68,68,0.3); }
-
         .hidden { display: none !important; }
     </style>
 </head>
@@ -177,52 +151,42 @@
 
     <header>
         <h1>Farmland Processing Pipeline</h1>
-        <p>Developer Testing Dashboard — verify GET and POST endpoints</p>
+        <p>Developer Verification Dashboard — look up and verify farm boundaries</p>
     </header>
 
-    <!-- Search -->
+    <!-- Search Form -->
     <div class="card">
-        <div class="search-area" style="margin-bottom: 15px;">
-            <input type="password" id="apiKeyInput" placeholder="Enter API Key" value="your_secure_api_key_here" />
+        <div class="search-area" style="margin-bottom: 14px;">
+            <input type="password" id="apiKeyInput" placeholder="Enter API Key (X-API-Key)" />
         </div>
         <div class="search-area">
-            <input type="text" id="phoneInput" placeholder="Enter Farmer Phone Number (e.g. 8805508334)" />
+            <input type="text" id="phoneInput" placeholder="Enter Farm Identifier / Phone Number (e.g. 8805508334)" />
             <button class="btn btn-primary" id="fetchBtn">Fetch Farm Data</button>
         </div>
     </div>
 
-    <!-- Results -->
+    <!-- Error Banner -->
+    <div id="errorAlert" class="error-banner hidden"></div>
+
+    <!-- Results Section -->
     <div id="resultsSection" class="hidden">
-
         <div class="results-grid">
-            <!-- Left: Telemetry + Raw JSON -->
-            <div>
-                <div class="card">
-                    <div style="display:flex;align-items:center;margin-bottom:12px;">
-                        <span class="section-label" style="margin-bottom:0">Telemetry — Auto-Fixes Applied</span>
-                        <span id="statusBadge" class="badge"></span>
-                    </div>
-                    <ul id="telemetryList"></ul>
-                    <p id="noFixes" class="hidden">No fixes needed — data was clean.</p>
-                </div>
-
-                <div class="card">
-                    <p class="section-label">Raw JSON Response</p>
-                    <pre id="rawJson"></pre>
-                </div>
+            <!-- Left: Raw JSON Response -->
+            <div class="card">
+                <p class="section-label">Raw GeoJSON Response</p>
+                <pre id="rawJson"></pre>
             </div>
 
-            <!-- Right: Leaflet Map -->
+            <!-- Right: Interactive Leaflet Map -->
             <div class="card">
-                <p class="section-label">Farm Geometry — Leaflet Map</p>
+                <p class="section-label">Farm Boundary Geometry</p>
                 <div id="map"></div>
             </div>
         </div>
-
     </div>
 
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/static/app.js?v=2"></script>
+    <script src="/static/app.js?v=3"></script>
 </body>
 </html>

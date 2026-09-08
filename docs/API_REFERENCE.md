@@ -54,6 +54,17 @@ Returns the health status of the API and its database connection.
 }
 ```
 
+#### Failure Response — `503 Service Unavailable`
+
+```json
+{
+  "status": "unhealthy",
+  "database": "disconnected",
+  "version": "4.0.0",
+  "error": "<error description>"
+}
+```
+
 ---
 
 ### `GET /api/farms/geojson`

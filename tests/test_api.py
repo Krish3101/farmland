@@ -32,6 +32,35 @@ async def test_health_check_database_connected(client: AsyncClient):
     assert data["database"] == "connected"
 
 
+@pytest.mark.anyio
+async def test_health_check_database_disconnected(client: AsyncClient):
+    """Health check should return 503 when database is unreachable (FR-20)."""
+    from src.main import app
+    from src.services.database import get_db_session
+
+    saved_override = app.dependency_overrides.get(get_db_session)
+
+    async def _failing_db_session():
+        class MockFailingSession:
+            async def execute(self, *args, **kwargs):
+                raise ConnectionRefusedError("Database connection refused")
+        yield MockFailingSession()
+
+    app.dependency_overrides[get_db_session] = _failing_db_session
+    try:
+        response = await client.get("/health")
+        assert response.status_code == 503
+        data = response.json()
+        assert data["status"] == "unhealthy"
+        assert data["database"] == "disconnected"
+        assert "Database connection refused" in data["error"]
+    finally:
+        if saved_override:
+            app.dependency_overrides[get_db_session] = saved_override
+        else:
+            app.dependency_overrides.pop(get_db_session, None)
+
+
 # ── Root / Dashboard ─────────────────────────────────────────────────────────
 
 @pytest.mark.anyio
@@ -58,6 +87,15 @@ async def test_geojson_unauthorized_invalid_key(client: AsyncClient):
     response = await client.get("/api/farms/geojson", headers={"X-API-Key": "wrong-key"})
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid or missing API Key."
+
+
+@pytest.mark.anyio
+async def test_geojson_server_unconfigured_key(client: AsyncClient, monkeypatch):
+    """Protected endpoints return 500 when API_KEY is not configured on server (FR-18)."""
+    monkeypatch.delenv("API_KEY", raising=False)
+    response = await client.get("/api/farms/geojson", headers={"X-API-Key": "test-api-key"})
+    assert response.status_code == 500
+    assert response.json()["detail"] == "API Key configuration error on server."
 
 
 # ── GeoJSON Endpoint — All Farms ──────────────────────────────────────────────

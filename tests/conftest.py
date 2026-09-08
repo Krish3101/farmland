@@ -20,11 +20,6 @@ from src.services.database import DATABASE_URL, get_db_session
 from src.main import app
 
 
-@pytest.fixture(scope="session")
-def event_loop_policy():
-    """Use the default event loop policy."""
-    import asyncio
-    return asyncio.DefaultEventLoopPolicy()
 
 
 @pytest.fixture(scope="session")

@@ -3,10 +3,10 @@ import sys
 import json
 import logging
 from contextlib import asynccontextmanager
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from src.api.routes import router as api_router
 from src.services.database import engine, get_db_session
@@ -111,13 +111,16 @@ async def health_check(session: AsyncSession = Depends(get_db_session)):
             "version": app.version,
         }
     except Exception as exc:
-        logger.error(f"Health check failed: {exc}")
-        return {
-            "status": "unhealthy",
-            "database": "disconnected",
-            "version": app.version,
-            "error": str(exc),
-        }
+        logger.error(f"Health check failed: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "status": "unhealthy",
+                "database": "disconnected",
+                "version": app.version,
+                "error": str(exc),
+            },
+        )
 
 
 # ── API routes ────────────────────────────────────────────────────────────────
