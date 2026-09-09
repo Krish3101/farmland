@@ -4,13 +4,40 @@ __pycache__/
 *$py.class
 .venv/
 venv/
+env/
 ENV/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.coverage
+coverage/
+htmlcov/
 *.log
+
+# Databases & SQLite
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
 farmland.db
+
+# Environment Variables
 .env
+.env.*
+!.env.example
+
+# IDE & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
 # OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 Thumbs.db
+ehthumbs.db
