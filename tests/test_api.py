@@ -8,9 +8,12 @@ with populated data. Run `docker compose up -d` before testing.
 import pytest
 from httpx import AsyncClient
 
+from tests.conftest import requires_db
+
 
 # ── Health Check ──────────────────────────────────────────────────────────────
 
+@requires_db
 @pytest.mark.anyio
 async def test_health_check(client: AsyncClient):
     """GET /health should return 200 with a status field."""
@@ -22,6 +25,7 @@ async def test_health_check(client: AsyncClient):
     assert data["version"] == "4.0.0"
 
 
+@requires_db
 @pytest.mark.anyio
 async def test_health_check_database_connected(client: AsyncClient):
     """Health check should report database as connected."""
@@ -100,6 +104,7 @@ async def test_geojson_server_unconfigured_key(client: AsyncClient, monkeypatch)
 
 # ── GeoJSON Endpoint — All Farms ──────────────────────────────────────────────
 
+@requires_db
 @pytest.mark.anyio
 async def test_geojson_returns_feature_collection(client: AsyncClient):
     """GET /api/farms/geojson should return a valid GeoJSON FeatureCollection."""
@@ -110,6 +115,7 @@ async def test_geojson_returns_feature_collection(client: AsyncClient):
     assert isinstance(data["features"], list)
 
 
+@requires_db
 @pytest.mark.anyio
 async def test_geojson_features_have_correct_structure(client: AsyncClient):
     """Each Feature should have type, geometry, and properties with farm_id."""
@@ -125,6 +131,7 @@ async def test_geojson_features_have_correct_structure(client: AsyncClient):
         assert "farm_id" in feature["properties"]
 
 
+@requires_db
 @pytest.mark.anyio
 async def test_geojson_geometry_types_are_valid(client: AsyncClient):
     """Geometry types should be either Polygon or MultiPolygon."""
@@ -138,6 +145,7 @@ async def test_geojson_geometry_types_are_valid(client: AsyncClient):
 
 # ── GeoJSON Endpoint — Filtering by farm_id ───────────────────────────────────
 
+@requires_db
 @pytest.mark.anyio
 async def test_geojson_filter_by_farm_id(client: AsyncClient):
     """GET /api/farms/geojson?farm_id=X should return only that farm."""
@@ -149,6 +157,7 @@ async def test_geojson_filter_by_farm_id(client: AsyncClient):
     assert data["features"][0]["properties"]["farm_id"] == "8805508334"
 
 
+@requires_db
 @pytest.mark.anyio
 async def test_geojson_filter_nonexistent_farm_id(client: AsyncClient):
     """Filtering by a non-existent farm_id should return an empty FeatureCollection."""
@@ -161,6 +170,7 @@ async def test_geojson_filter_nonexistent_farm_id(client: AsyncClient):
 
 # ── GeoJSON Endpoint — Pagination ─────────────────────────────────────────────
 
+@requires_db
 @pytest.mark.anyio
 async def test_geojson_pagination_limit(client: AsyncClient):
     """Limit parameter should cap the number of returned features."""
@@ -170,6 +180,7 @@ async def test_geojson_pagination_limit(client: AsyncClient):
     assert len(data["features"]) <= 2
 
 
+@requires_db
 @pytest.mark.anyio
 async def test_geojson_pagination_offset(client: AsyncClient):
     """Offset should skip features — offset beyond total should return empty."""

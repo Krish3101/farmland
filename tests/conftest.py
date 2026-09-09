@@ -19,6 +19,27 @@ from httpx import AsyncClient, ASGITransport
 from src.services.database import DATABASE_URL, get_db_session
 from src.main import app
 
+import socket
+from urllib.parse import urlparse
+
+
+def _is_db_reachable() -> bool:
+    try:
+        url = urlparse(DATABASE_URL.replace("+asyncpg", ""))
+        host = url.hostname or "127.0.0.1"
+        port = url.port or 5434
+        with socket.create_connection((host, port), timeout=0.3):
+            return True
+    except Exception:
+        return False
+
+
+is_db_reachable = _is_db_reachable()
+requires_db = pytest.mark.skipif(
+    not is_db_reachable,
+    reason="PostGIS database container not running (run 'docker compose up -d')",
+)
+
 
 
 
