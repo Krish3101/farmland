@@ -11,10 +11,10 @@ BEGIN
         RETURN NULL;
     END IF;
 
-    -- FR-5: Remove all whitespace (spaces, tabs, newlines)
+    -- Remove all whitespace (spaces, tabs, newlines)
     coord := REGEXP_REPLACE(coord, '\s+', '', 'g');
 
-    -- FR-5: Must have exactly one comma separating two non-empty parts
+    -- Must be exactly one comma separating two non-empty parts
     IF coord NOT LIKE '%,%' OR coord LIKE '%,%,%' THEN
         RETURN NULL;
     END IF;
@@ -26,7 +26,7 @@ BEGIN
         RETURN NULL;
     END IF;
 
-    -- FR-6: Decimal auto-injection if no decimal and longer than 2 digits
+    -- Insert the decimal point when it is missing and the value is longer than 2 digits
     IF STRPOS(lat_str, '.') = 0 AND LENGTH(lat_str) > 2 THEN
         lat_str := SUBSTRING(lat_str FROM 1 FOR 2) || '.' || SUBSTRING(lat_str FROM 3);
     END IF;
@@ -35,7 +35,7 @@ BEGIN
         lon_str := SUBSTRING(lon_str FROM 1 FOR 2) || '.' || SUBSTRING(lon_str FROM 3);
     END IF;
 
-    -- FR-5: Convert to numeric, reject non-numeric
+    -- Reject anything that is not numeric
     BEGIN
         lat_val := lat_str::numeric;
         lon_val := lon_str::numeric;
@@ -43,7 +43,7 @@ BEGIN
         RETURN NULL;
     END;
 
-    -- FR-7: India bounds lat/lon swap
+    -- Swap lat/lon when they were entered the wrong way round
     -- Operating region: Latitude 6 to 38, Longitude 66 to 98
     -- If first value is in longitude range and second in latitude range, swap
     IF (lat_val >= 66 AND lat_val <= 98) AND (lon_val >= 6 AND lon_val <= 38) THEN
@@ -57,7 +57,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
--- Drop and recreate the materialized view (FR-3: Rebuild dataset from scratch)
+-- Drop and recreate the materialized view
 DROP MATERIALIZED VIEW IF EXISTS processed_farm_geojson;
 
 CREATE MATERIALIZED VIEW processed_farm_geojson AS
@@ -77,20 +77,20 @@ WITH raw_parsed AS (
 geometries AS (
     SELECT 
         farm_id,
-        -- FR-9: Smallest enclosing shape containing all 4 corner points
+        -- Smallest shape enclosing all four corners
         ST_ConvexHull(ST_GeomFromText('MULTIPOINT(' || p1 || ',' || p2 || ',' || p3 || ',' || p4 || ')')) AS geometry
     FROM raw_parsed
-    -- FR-8: Usable only if all 4 corners clean successfully
+    -- Only usable if all four corners cleaned successfully
     WHERE p1 IS NOT NULL AND p2 IS NOT NULL AND p3 IS NOT NULL AND p4 IS NOT NULL
 ),
 valid_polygons AS (
     SELECT 
-        -- FR-11: Unique by farm identifier
+        -- One row per farm
         DISTINCT ON (farm_id) farm_id,
-        -- FR-10: Valid, tagged with EPSG:4326
+        -- Valid geometry, tagged as EPSG:4326
         ST_MakeValid(ST_SetSRID(geometry, 4326)) AS valid_geom
     FROM geometries
-    -- FR-10: Output geometries are polygonal
+    -- Polygons only
     WHERE ST_GeometryType(geometry) IN ('ST_Polygon', 'ST_MultiPolygon')
     ORDER BY farm_id
 )
@@ -99,5 +99,5 @@ SELECT
     ST_AsGeoJSON(valid_geom)::json AS geojson
 FROM valid_polygons;
 
--- Unique index to support fast lookups (NFR-5) and concurrent non-blocking refreshes (FR-4, NFR-16)
+-- Unique index: needed for fast lookups and for REFRESH ... CONCURRENTLY
 CREATE UNIQUE INDEX idx_processed_farm_geojson_farm_id ON processed_farm_geojson (farm_id);

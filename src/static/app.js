@@ -1,8 +1,6 @@
-// Global Leaflet map state
 let leafletMap = null;
 let farmLayer = null;
 
-// DOM elements
 const phoneInput = document.getElementById('phoneInput');
 const apiKeyInput = document.getElementById('apiKeyInput');
 const fetchBtn = document.getElementById('fetchBtn');
@@ -34,7 +32,6 @@ async function handleFetch() {
     const farmId = phoneInput.value.trim();
     const apiKey = apiKeyInput.value.trim();
 
-    // FR-21: An empty identifier is rejected before any request is made
     if (!farmId) {
         showError('Please enter a farm identifier.');
         phoneInput.focus();
@@ -47,7 +44,6 @@ async function handleFetch() {
     resultsSection.classList.add('hidden');
 
     try {
-        // FR-21: Server-side filtered lookup
         const headers = {};
         if (apiKey) {
             headers['X-API-Key'] = apiKey;
@@ -71,19 +67,15 @@ async function handleFetch() {
         const featureCollection = await response.json();
         const feature = featureCollection.features && featureCollection.features[0];
 
-        // FR-24: "No record found" shown as visible error state
         if (!feature) {
             showError(`No farm record found for identifier: ${farmId}`);
             return;
         }
 
-        // Display results
         resultsSection.classList.remove('hidden');
 
-        // FR-23: Display raw response alongside map
         rawJson.textContent = JSON.stringify(featureCollection, null, 2);
 
-        // FR-22: Render boundary on map and fit to extent
         initMap();
         if (farmLayer) {
             leafletMap.removeLayer(farmLayer);
@@ -107,16 +99,13 @@ async function handleFetch() {
         }
 
     } catch (err) {
-        // FR-24: Surface authorization, server, and network errors visibly
         showError(`Error: ${err.message}`);
     } finally {
-        // FR-24: Controls are re-enabled after every attempt
         fetchBtn.disabled = false;
         fetchBtn.textContent = 'Fetch Farm Data';
     }
 }
 
-// Event Listeners
 fetchBtn.addEventListener('click', handleFetch);
 
 phoneInput.addEventListener('keydown', (e) => {

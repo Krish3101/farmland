@@ -1,98 +1,42 @@
-# Farmland Processing Pipeline — API Reference
+# API reference
 
-**Version:** 4.0.0  
-**Base URL:** `http://localhost:8000`  
-**Interactive Docs:** `http://localhost:8000/docs` (Swagger UI)
+Base URL `http://localhost:8000`. FastAPI serves its own interactive docs at `/docs`
+and `/redoc`, which are generated from the code and so can't drift from it — this file
+covers the parts those pages don't explain.
 
----
+Every `/api` route requires an `X-API-Key` header matching the server's `API_KEY`.
+A missing or wrong key is a 401; if the server itself has no `API_KEY` configured,
+requests fail with a 500 rather than being let through.
 
-## Overview
+## GET /health
 
-The Farmland Processing Pipeline is a high-performance FastAPI microservice that queries pre-calculated GIS data from a **PostGIS Materialized View** and serves it as a strict **RFC 7946-compliant GeoJSON FeatureCollection**. By offloading all spatial coordinate math and data normalization to the database layer, the API achieves high-throughput performance capable of scaling to large volumes of records.
-
----
-
-## Response Structure
-
-The successful geometry response follows the **RFC 7946 GeoJSON FeatureCollection** format. Custom metadata (such as the farmer ID) is enclosed strictly within `properties` for each `Feature`.
+Unauthenticated. Returns 200 when the database answers, 503 when it doesn't.
 
 ```json
-{
-  "type": "FeatureCollection",
-  "features": [
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Polygon",
-        "coordinates": [[[lon, lat], ...]]
-      },
-      "properties": {
-        "farm_id": "9011743132"
-      }
-    }
-  ]
-}
+{ "status": "healthy", "database": "connected", "version": "0.1.0" }
 ```
 
----
+The 503 body has the same shape with `"status": "unhealthy"`, `"database": "disconnected"`
+and an `error` field.
 
-## Endpoints
+## GET /api/farms/geojson
 
----
+Returns farm boundaries as an RFC 7946 `FeatureCollection`. The farmer id travels in each
+feature's `properties`, since RFC 7946 has nowhere else to put application data.
 
-### `GET /health`
-
-Returns the health status of the API and its database connection.
-
-#### Success Response — `200 OK`
-
-```json
-{
-  "status": "healthy",
-  "database": "connected",
-  "version": "4.0.0"
-}
-```
-
-#### Failure Response — `503 Service Unavailable`
-
-```json
-{
-  "status": "unhealthy",
-  "database": "disconnected",
-  "version": "4.0.0",
-  "error": "<error description>"
-}
-```
-
----
-
-### `GET /api/farms/geojson`
-
-Retrieves processed farmland geometries as a unified `FeatureCollection`.
-
-#### Query Parameters
-
-| Parameter | Type | Default | Description |
+| Parameter | Type | Default | |
 |---|---|---|---|
-| `farm_id` | `string` | `null` | Optional. Filter by a specific farm ID (phone number). |
-| `limit` | `integer` | `100` | Max features per page (1–1000). Ignored when `farm_id` is set. |
-| `offset` | `integer` | `0` | Number of features to skip. Ignored when `farm_id` is set. |
+| `farm_id` | string | — | Filter to one farm, by phone number. Makes `limit` and `offset` irrelevant. |
+| `limit` | integer | 100 | Features per page, 1–1000. |
+| `offset` | integer | 0 | Features to skip. |
 
-#### Performance
-This endpoint directly queries the `processed_farm_geojson` materialized view and returns the pre-formatted `geojson` strings, avoiding any heavy Python spatial transformations.
-
-#### Example — Fetch a specific farm
 ```bash
-curl http://localhost:8000/api/farms/geojson?farm_id=8805508334
-```
+curl -H "X-API-Key: $API_KEY" \
+  "http://localhost:8000/api/farms/geojson?farm_id=9000000001"
 
-#### Example — Paginated fetch
-```bash
-curl "http://localhost:8000/api/farms/geojson?limit=10&offset=0"
+curl -H "X-API-Key: $API_KEY" \
+  "http://localhost:8000/api/farms/geojson?limit=10&offset=0"
 ```
-
-#### Success Response — `200 OK`
 
 ```json
 {
@@ -111,38 +55,16 @@ curl "http://localhost:8000/api/farms/geojson?limit=10&offset=0"
           ]
         ]
       },
-      "properties": {
-        "farm_id": "9011743132"
-      }
+      "properties": { "farm_id": "9011743132" }
     }
   ]
 }
 ```
 
-#### Error Responses
+The response comes straight out of the `processed_farm_geojson` materialized view. The
+coordinate cleaning and spatial work all happened at refresh time, so a read is an indexed
+lookup and does no geometry work in Python.
 
-| HTTP Code | When | `detail` Example |
-|---|---|---|
-| `422 Unprocessable Entity` | Invalid query parameters (e.g., limit=0) | `"Input should be greater than or equal to 1"` |
-| `500 Internal Server Error` | Database connection failure or query error | `"Could not retrieve processed farm GeoJSON."` |
-
-All error responses follow FastAPI's standard format:
-```json
-{ "detail": "<error description>" }
-```
-
----
-
-## Running the Service
-
-```bash
-# From the project root
-uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-| URL | Purpose |
-|---|---|
-| `http://localhost:8000` | Developer Testing Dashboard |
-| `http://localhost:8000/health` | Health Check Endpoint |
-| `http://localhost:8000/docs` | Swagger UI (interactive docs) |
-| `http://localhost:8000/redoc` | ReDoc documentation |
+Errors use FastAPI's `{"detail": "..."}` shape: 422 for a bad parameter (`limit=0` gives
+"Input should be greater than or equal to 1"), 401 for a bad key, 500 if the view can't be
+read.

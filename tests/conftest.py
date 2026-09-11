@@ -1,26 +1,28 @@
 """
-Pytest configuration for async integration tests.
+Pytest configuration for the async integration tests.
 
-Uses a NullPool engine to avoid asyncpg event loop conflicts in testing.
-Each test gets a fresh connection from the pool, with no cross-loop issues.
+The test engine uses NullPool, so a connection is opened and closed per use.
+Pooled asyncpg connections stay bound to the event loop that created them,
+which breaks when they are reused across tests.
 """
 
 import os
+
 import pytest
 
-# Set test environment variables
+# Must be set before src.main is imported below.
 os.environ["API_KEY"] = "test-api-key"
 os.environ["ALLOWED_ORIGINS"] = "http://testserver"
 
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.pool import NullPool
-from httpx import AsyncClient, ASGITransport
-
-from src.services.database import DATABASE_URL, get_db_session
-from src.main import app
-
 import socket
 from urllib.parse import urlparse
+
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
+
+from src.main import app
+from src.services.database import DATABASE_URL, get_db_session
 
 
 def _is_db_reachable() -> bool:
@@ -41,15 +43,9 @@ requires_db = pytest.mark.skipif(
 )
 
 
-
-
 @pytest.fixture(scope="session")
 async def test_engine():
-    """
-    Create a fresh async engine with NullPool for testing.
-    NullPool creates a new connection for each request and closes it immediately,
-    avoiding all event-loop-binding issues with asyncpg's connection pool.
-    """
+    """Async engine for tests, unpooled to avoid event-loop binding."""
     engine = create_async_engine(
         DATABASE_URL,
         echo=False,
@@ -76,6 +72,7 @@ async def override_db(test_session_factory):
     Override the FastAPI DB dependency so the app uses the test engine
     (NullPool, bound to the test event loop).
     """
+
     async def _test_get_db_session():
         async with test_session_factory() as session:
             yield session

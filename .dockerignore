@@ -1,0 +1,33 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# VCS
+.git
+.gitignore
+.github
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Not needed at runtime
+tests/
+docs/
+scripts/
+README.md
+LICENSE
+docker-compose*.yml
+Dockerfile
+.dockerignore
+
+# OS
+.DS_Store

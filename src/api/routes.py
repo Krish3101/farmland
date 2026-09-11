@@ -1,12 +1,12 @@
 import json
 import logging
-from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
 
-from src.services.database import get_db_session
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.api.auth import verify_api_key
+from src.services.database import get_db_session
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +20,10 @@ router = APIRouter()
     dependencies=[Depends(verify_api_key)],
 )
 async def get_farms_geojson(
-    farm_id: Optional[str] = Query(
+    farm_id: str | None = Query(
         None,
         description="Optional farm ID (phone number) to filter a specific farm.",
-        examples=["8805508334"],
+        examples=["9000000001"],
     ),
     limit: int = Query(
         100,
@@ -50,8 +50,7 @@ async def get_farms_geojson(
     try:
         if farm_id:
             query = text(
-                "SELECT farm_id, geojson FROM processed_farm_geojson "
-                "WHERE farm_id = :farm_id"
+                "SELECT farm_id, geojson FROM processed_farm_geojson WHERE farm_id = :farm_id"
             )
             result = await session.execute(query, {"farm_id": farm_id})
         else:
@@ -68,26 +67,20 @@ async def get_farms_geojson(
             # The geojson column could be returned as a dict or string depending on the driver
             geometry = geojson_data if isinstance(geojson_data, dict) else json.loads(geojson_data)
 
-            # Format directly into a standard GeoJSON Feature
             feature = {
                 "type": "Feature",
                 "geometry": geometry,
-                "properties": {
-                    "farm_id": farm_id_val
-                }
+                "properties": {"farm_id": farm_id_val},
             }
             features.append(feature)
 
-        feature_collection = {
-            "type": "FeatureCollection",
-            "features": features
-        }
+        feature_collection = {"type": "FeatureCollection", "features": features}
 
         return feature_collection
 
     except Exception as exc:
-        logger.error(f"Error fetching geojson data: {exc}")
+        logger.error("Error fetching geojson data: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail="Could not retrieve processed farm GeoJSON."
-        )
+            detail="Could not retrieve processed farm GeoJSON.",
+        ) from exc

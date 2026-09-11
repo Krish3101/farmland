@@ -1,17 +1,15 @@
-import os
-import sys
 import argparse
 import logging
+import os
+import sys
 from pathlib import Path
+
 import pandas as pd
-from sqlalchemy import create_engine, inspect, text
 from dotenv import load_dotenv
+from sqlalchemy import create_engine, inspect, text
 
-# Add project root to sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.append(str(PROJECT_ROOT))
 
-# Load environment variables
 load_dotenv(PROJECT_ROOT / ".env")
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -19,8 +17,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_EXCEL_PATH = PROJECT_ROOT / "src" / "data" / "farmers_data.xls"
 DEFAULT_DB_URL = os.getenv(
-    "DATABASE_URL", 
-    "postgresql+asyncpg://user:password@127.0.0.1:5434/farmland_db"
+    "DATABASE_URL", "postgresql+asyncpg://user:password@127.0.0.1:5434/farmland_db"
 )
 
 
@@ -36,7 +33,7 @@ def get_sync_db_url(url: str) -> str:
 def migrate(excel_path: Path, db_url: str, force: bool = False):
     """
     Ingests source spreadsheet records into the raw_farmers_data PostgreSQL table.
-    
+
     Preserves source structure as-is. If the table already exists, requires operator
     confirmation (or --force). When dependent objects like materialized views exist,
     truncates and appends so read traffic remains uninterrupted.
@@ -58,7 +55,7 @@ def migrate(excel_path: Path, db_url: str, force: bool = False):
     sync_url = get_sync_db_url(db_url)
     engine = create_engine(sync_url)
 
-    # Safety check (FR-2) — confirm before replacing existing raw data
+    # Confirm before replacing existing raw data.
     try:
         inspector = inspect(engine)
         table_exists = inspector.has_table("raw_farmers_data")
@@ -69,7 +66,8 @@ def migrate(excel_path: Path, db_url: str, force: bool = False):
     if table_exists and not force:
         logger.warning(
             "Table 'raw_farmers_data' already exists. "
-            "Ingestion will replace the raw data, leaving the processed dataset stale until refreshed."
+            "Ingestion will replace the raw data, leaving the processed "
+            "dataset stale until refreshed."
         )
         try:
             confirm = input("Proceed with replacement? [y/N]: ").strip().lower()
@@ -106,13 +104,15 @@ def main():
         description="Load source farmland spreadsheet into raw PostgreSQL storage."
     )
     parser.add_argument(
-        "-f", "--file",
+        "-f",
+        "--file",
         type=Path,
         default=DEFAULT_EXCEL_PATH,
         help=f"Path to source Excel file (default: {DEFAULT_EXCEL_PATH})",
     )
     parser.add_argument(
-        "-d", "--db-url",
+        "-d",
+        "--db-url",
         type=str,
         default=DEFAULT_DB_URL,
         help="Database connection URL (default: from DATABASE_URL env or port 5434)",
