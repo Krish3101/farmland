@@ -5,6 +5,8 @@
 A REST API that turns a hand-typed farmland spreadsheet into validated field
 boundaries and serves them as GeoJSON (RFC 7946, EPSG:4326).
 
+**Stack:** FastAPI, async SQLAlchemy with asyncpg, PostgreSQL with PostGIS, Docker Compose, pandas for ingestion, Leaflet.
+
 ## What it does
 
 Each farm in the source spreadsheet has four GPS corners, typed by hand, so the
