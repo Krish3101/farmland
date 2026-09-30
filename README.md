@@ -1,5 +1,7 @@
 # Farmland
 
+[![tests](https://github.com/Krish3101/farmland/actions/workflows/tests.yml/badge.svg)](https://github.com/Krish3101/farmland/actions/workflows/tests.yml)
+
 A REST API that turns a hand-typed farmland spreadsheet into validated field
 boundaries and serves them as GeoJSON (RFC 7946, EPSG:4326).
 
