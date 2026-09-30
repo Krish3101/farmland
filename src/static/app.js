@@ -60,7 +60,9 @@ async function handleFetch() {
                 if (body && body.detail) {
                     errorDetail = body.detail;
                 }
-            } catch (_) {}
+            } catch {
+                // The error body wasn't JSON; keep the status message.
+            }
             throw new Error(errorDetail);
         }
 

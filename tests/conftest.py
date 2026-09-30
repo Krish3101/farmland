@@ -32,7 +32,7 @@ def _is_db_reachable() -> bool:
         port = url.port or 5434
         with socket.create_connection((host, port), timeout=0.3):
             return True
-    except Exception:
+    except (OSError, ValueError):
         return False
 
 
