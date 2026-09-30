@@ -1,7 +1,7 @@
 # API reference
 
 Base URL `http://localhost:8000`. FastAPI serves its own interactive docs at `/docs`
-and `/redoc`, which are generated from the code and so can't drift from it — this file
+and `/redoc`, which are generated from the code and so can't drift from it. This file
 covers the parts those pages don't explain.
 
 Every `/api` route requires an `X-API-Key` header matching the server's `API_KEY`.
@@ -26,7 +26,7 @@ feature's `properties`, since RFC 7946 has nowhere else to put application data.
 
 | Parameter | Type | Default | |
 |---|---|---|---|
-| `farm_id` | string | — | Filter to one farm, by phone number. Makes `limit` and `offset` irrelevant. |
+| `farm_id` | string | none | Filter to one farm, by phone number. Makes `limit` and `offset` irrelevant. |
 | `limit` | integer | 100 | Features per page, 1–1000. |
 | `offset` | integer | 0 | Features to skip. |
 

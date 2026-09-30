@@ -147,7 +147,7 @@ uv run pytest
 
 Tests run against the real ASGI app through httpx. The ones needing live data are
 marked `@requires_db` and skip when PostGIS is not reachable, so a fresh checkout
-still runs clean — about half the suite skips without Docker and all of it runs with it.
+still runs clean. About half the suite skips without Docker and all of it runs with it.
 
 They cover auth (missing key, wrong key, unconfigured server), pagination
 validation, GeoJSON structure and geometry types, and the 503 path when the
