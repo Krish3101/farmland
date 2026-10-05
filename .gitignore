@@ -14,13 +14,6 @@ coverage/
 htmlcov/
 *.log
 
-# Databases & SQLite
-*.db
-*.sqlite
-*.sqlite3
-*.db-journal
-farmland.db
-
 # Environment Variables
 .env
 .env.*
