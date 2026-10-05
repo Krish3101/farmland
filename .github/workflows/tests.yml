@@ -7,10 +7,32 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      db:
+        image: imresamu/postgis:15-3.4
+        env:
+          POSTGRES_USER: farmland
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: farmland_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U farmland -d farmland_db"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      DATABASE_URL: postgresql+asyncpg://farmland:ci-only-password@localhost:5432/farmland_db
+      API_KEY: ci-test-key
+      REQUIRE_DB: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync --locked
+      - run: uv sync --locked --group scripts
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run pytest -v
+      - name: Load the spreadsheet
+        run: uv run --locked --group scripts python scripts/ingest.py --force
+      - name: Build the cleaning function and view
+        run: docker exec -i ${{ job.services.db.id }} psql -U farmland -d farmland_db -v ON_ERROR_STOP=1 -1 < sql/clean_and_build.sql
+      - run: uv run --locked pytest -v -rs

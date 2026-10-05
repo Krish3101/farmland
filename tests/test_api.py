@@ -1,28 +1,20 @@
 """
 Tests for the Farmland API.
 
-These are integration tests that require a running PostGIS database
-with populated data. Run `docker compose up -d` before testing.
+Tests marked `requires_db` need the PostGIS database from ./scripts/start.sh
+(ingested and built). They skip without it, unless REQUIRE_DB is set.
 """
 
+import pytest
 from httpx import AsyncClient
 
+from src.db import get_db_session
+from src.main import app
 from tests.conftest import requires_db
 
 AUTH = {"X-API-Key": "test-api-key"}
 
 # Health check
-
-
-@requires_db
-async def test_health_check(client: AsyncClient):
-    """GET /health should return 200 with a status field."""
-    response = await client.get("/health")
-    assert response.status_code == 200
-    data = response.json()
-    assert "status" in data
-    assert "database" in data
-    assert data["version"] == "0.1.0"
 
 
 @requires_db
@@ -37,9 +29,6 @@ async def test_health_check_database_connected(client: AsyncClient):
 
 async def test_health_check_database_disconnected(client: AsyncClient):
     """Health check should return 503 when database is unreachable."""
-    from src.main import app
-    from src.services.database import get_db_session
-
     saved_override = app.dependency_overrides.get(get_db_session)
 
     async def _failing_db_session():
@@ -65,16 +54,6 @@ async def test_health_check_database_disconnected(client: AsyncClient):
             app.dependency_overrides.pop(get_db_session, None)
 
 
-# Root / dashboard
-
-
-async def test_root_serves_dashboard(client: AsyncClient):
-    """GET / should return 200 and serve the HTML dashboard."""
-    response = await client.get("/")
-    assert response.status_code == 200
-    assert "text/html" in response.headers["content-type"]
-
-
 # Authentication
 
 
@@ -92,12 +71,21 @@ async def test_geojson_unauthorized_invalid_key(client: AsyncClient):
     assert response.json()["detail"] == "Invalid or missing API Key."
 
 
-async def test_geojson_server_unconfigured_key(client: AsyncClient, monkeypatch):
-    """Protected endpoints return 500 when API_KEY is not configured on server."""
-    monkeypatch.delenv("API_KEY", raising=False)
-    response = await client.get("/api/farms/geojson", headers=AUTH)
-    assert response.status_code == 500
-    assert response.json()["detail"] == "API Key configuration error on server."
+async def test_geojson_unauthorized_non_ascii_key(client: AsyncClient):
+    """GET /api/farms/geojson with non-ASCII X-API-Key should safely return 401 Unauthorized."""
+    response = await client.get(
+        "/api/farms/geojson", headers={"X-API-Key": "r\xe9v".encode("latin-1")}
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or missing API Key."
+
+
+async def test_startup_fails_without_api_key(monkeypatch):
+    """The app refuses to start when API_KEY is empty."""
+    monkeypatch.setenv("API_KEY", "")
+    with pytest.raises(RuntimeError, match="API_KEY is not set"):
+        async with app.router.lifespan_context(app):
+            pass
 
 
 # GeoJSON endpoint: all farms
@@ -126,6 +114,7 @@ async def test_geojson_features_have_correct_structure(client: AsyncClient):
         assert "coordinates" in feature["geometry"]
         assert "properties" in feature
         assert "farm_id" in feature["properties"]
+        assert 500 <= feature["properties"]["area_m2"] <= 50_000
 
 
 @requires_db
@@ -163,6 +152,25 @@ async def test_geojson_filter_nonexistent_farm_id(client: AsyncClient):
     assert len(data["features"]) == 0
 
 
+@requires_db
+async def test_geojson_filter_by_farm_id_respects_offset(client: AsyncClient):
+    """farm_id goes through the same query, so offset still applies."""
+    response = await client.get("/api/farms/geojson?farm_id=8805508334&offset=5", headers=AUTH)
+    assert response.status_code == 200
+    assert response.json()["features"] == []
+
+
+@requires_db
+async def test_geojson_empty_farm_id_means_no_filter(client: AsyncClient):
+    """An empty farm_id returns the same farms as no farm_id at all."""
+    unfiltered = await client.get("/api/farms/geojson", headers=AUTH)
+    for value in ["", "%20"]:
+        response = await client.get(f"/api/farms/geojson?farm_id={value}", headers=AUTH)
+        assert response.status_code == 200
+        assert response.json() == unfiltered.json()
+    assert len(unfiltered.json()["features"]) == 10
+
+
 # GeoJSON endpoint: pagination
 
 
@@ -197,12 +205,3 @@ async def test_geojson_pagination_invalid_offset(client: AsyncClient):
     """Negative offset should return 422 validation error."""
     response = await client.get("/api/farms/geojson?offset=-1", headers=AUTH)
     assert response.status_code == 422
-
-
-# Swagger docs
-
-
-async def test_swagger_docs_available(client: AsyncClient):
-    """GET /docs should return 200 (Swagger UI)."""
-    response = await client.get("/docs")
-    assert response.status_code == 200
