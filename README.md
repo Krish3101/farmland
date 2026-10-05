@@ -121,7 +121,7 @@ uv run pytest -v -rs
 uv run ruff check . && uv run ruff format --check .
 ```
 
-Most tests need the PostGIS database with the sheet loaded and the SQL built (`./scripts/start.sh` does this); they find it through `DATABASE_URL` in `.env`. Without it they are skipped, and `-rs` shows why. CI runs every test against a PostGIS service with `REQUIRE_DB=1`, which turns an unreachable database into an error instead of skips.
+Most tests need the PostGIS database with the sheet loaded and the SQL built (`./scripts/start.sh` does this); they find it through `DATABASE_URL` in `.env`. Without it they are skipped, and `-rs` shows why. Setting `REQUIRE_DB=1` turns an unreachable database into an error instead of skips.
 
 ## Layout
 

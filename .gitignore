@@ -2,22 +2,40 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+.Python
 .venv/
 venv/
 env/
 ENV/
+dist/
+build/
+*.egg-info/
+
+# Testing & Coverage
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
 .coverage
+.coverage.*
 coverage/
 htmlcov/
 *.log
+logs/
 
-# Environment Variables
+# Environment Variables & Secrets
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+
+# Database Dumps / SQLite
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
 
 # IDE & Editors
 .vscode/
@@ -25,8 +43,10 @@ htmlcov/
 *.swp
 *.swo
 *~
+*.sublime-project
+*.sublime-workspace
 
-# OS
+# OS Files
 .DS_Store
 .DS_Store?
 ._*
