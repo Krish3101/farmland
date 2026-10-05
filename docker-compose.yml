@@ -1,37 +1,19 @@
 services:
   db:
     image: imresamu/postgis:15-3.4
-    container_name: farmland_postgis
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_USER: ${POSTGRES_USER:-farmland}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-farmland_db}
     ports:
-      - "5434:5432"  # Unique host port to avoid conflicts
+      - "127.0.0.1:${DB_PORT:-5434}:5432"
     volumes:
       - postgis_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-farmland_db}"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-farmland} -d ${POSTGRES_DB:-farmland_db}"]
+      interval: 5s
       timeout: 5s
-      retries: 5
-
-  app:
-    build: .
-    container_name: farmland_app
-    ports:
-      - "8005:8000"
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-farmland_db}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - API_KEY=${API_KEY:-your_secure_api_key_here}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8005}
-    depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      - .:/app
-    restart: always
+      retries: 10
 
 volumes:
   postgis_data:
