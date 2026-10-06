@@ -55,22 +55,30 @@ END $$;
 CREATE VIEW farm_candidates AS
 WITH raw_parsed AS (
     SELECT
-        TRIM("Unnamed: 3"::text) AS farm_id,
+        -- Rows with a serial number but no usable id get 'row <serial>' so they can be found.
+        CASE WHEN id_missing THEN 'row ' || TRIM("Unnamed: 1"::text)
+             ELSE TRIM("Unnamed: 3"::text) END AS farm_id,
+        id_missing,
         clean_coordinate("Unnamed: 7"::text) AS a,
         clean_coordinate("Unnamed: 8"::text) AS b,
         clean_coordinate("Unnamed: 9"::text) AS c,
         clean_coordinate("Unnamed: 10"::text) AS d,
-        COUNT(*) OVER (PARTITION BY TRIM("Unnamed: 3"::text)) AS n
-    FROM raw_farmers_data
-    WHERE "Unnamed: 1" NOT IN ('Sr. No.', 'NaN') AND "Unnamed: 1" IS NOT NULL
-      AND "Unnamed: 3" IS NOT NULL
-      AND TRIM("Unnamed: 3"::text) != ''
-      AND TRIM("Unnamed: 3"::text) NOT IN ('NaN', 'None', 'Sr. No.')
+        -- Missing ids are never duplicates of each other.
+        CASE WHEN id_missing THEN 1
+             ELSE COUNT(*) OVER (PARTITION BY id_missing, TRIM("Unnamed: 3"::text)) END AS n
+    FROM (
+        SELECT *,
+            ("Unnamed: 3" IS NULL
+             OR TRIM("Unnamed: 3"::text) = ''
+             OR TRIM("Unnamed: 3"::text) IN ('NaN', 'None', 'Sr. No.')) AS id_missing
+        FROM raw_farmers_data
+        WHERE "Unnamed: 1" NOT IN ('Sr. No.', 'NaN') AND "Unnamed: 1" IS NOT NULL
+    ) AS data_rows
 ),
 hulls AS (
     SELECT
         farm_id,
-        a, b, c, d, n,
+        a, b, c, d, n, id_missing,
         CASE
             WHEN a IS NOT NULL AND b IS NOT NULL AND c IS NOT NULL AND d IS NOT NULL
             THEN ST_ForcePolygonCCW(ST_ConvexHull(ST_Collect(ARRAY[a, b, c, d])))
@@ -80,6 +88,7 @@ hulls AS (
 )
 SELECT farm_id, geom,
     CASE
+        WHEN id_missing THEN 'missing farm_id'
         WHEN n > 1 THEN 'duplicate farm_id'
         WHEN a IS NULL THEN 'corner A unparseable'
         WHEN b IS NULL THEN 'corner B unparseable'
@@ -98,6 +107,7 @@ FROM farm_candidates
 WHERE reject_reason IS NULL;
 
 CREATE UNIQUE INDEX idx_processed_farm_geojson_farm_id ON processed_farm_geojson (farm_id);
+CREATE INDEX idx_processed_farm_geojson_geom ON processed_farm_geojson USING GIST (geom);
 
 CREATE VIEW farm_rejections AS
 SELECT farm_id, reject_reason

@@ -43,6 +43,7 @@ A farm is never dropped silently. `farm_candidates` gives each farm a `reject_re
 
 | Reason | When |
 |---|---|
+| `missing farm_id` | the row has a serial number but a blank, `NaN` or `None` id; its `farm_id` is shown as `row <serial>` |
 | `duplicate farm_id` | the same id appears more than once (all copies are rejected, none is picked) |
 | `corner A unparseable` (B, C, D) | `clean_coordinate()` returned `NULL` for that corner |
 | `corners collinear or identical` | the hull is a line or a point, not a polygon |
