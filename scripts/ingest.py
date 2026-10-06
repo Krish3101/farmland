@@ -98,7 +98,11 @@ def ingest(excel_path: Path, db_url: str, force: bool = False):
         ).scalar()
         if has_matview:
             logger.info("Refreshing materialized view 'processed_farm_geojson'...")
-            conn.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY processed_farm_geojson;"))
+            try:
+                conn.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY processed_farm_geojson;"))
+            except Exception as e:
+                logger.error("Failed to refresh the materialized view: %s", e)
+                sys.exit(1)
             rejections_count = conn.execute(text("SELECT count(*) FROM farm_rejections;")).scalar()
             logger.info(
                 "Materialized view refreshed successfully (%d rejected records).",

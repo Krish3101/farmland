@@ -53,7 +53,7 @@ async def health_check(session: AsyncSession = Depends(get_db_session)):
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 content={
                     "status": "unhealthy",
-                    "database": "disconnected",
+                    "database": "connected",
                     "version": app.version,
                     "error": "Database materialized view is not initialized.",
                 },

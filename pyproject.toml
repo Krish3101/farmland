@@ -3,6 +3,8 @@ name = "farmland"
 version = "0.1.0"
 description = "REST API serving cleaned farmland boundaries as GeoJSON, backed by PostGIS"
 readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Krish Kalya", email = "krishkalya31012005@gmail.com" }]
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.100.0",

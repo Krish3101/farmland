@@ -37,6 +37,9 @@ async def get_farms_geojson(
         None,
         description="Optional farm ID (phone number) to filter a specific farm.",
         examples=["8805508334"],
+        max_length=64,
+        # Postgres text can't hold a NUL byte; reject it here instead of failing the query.
+        pattern=r"^[^\x00]*$",
     ),
     limit: int = Query(
         100,

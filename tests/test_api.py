@@ -152,6 +152,12 @@ async def test_geojson_filter_nonexistent_farm_id(client: AsyncClient):
     assert len(data["features"]) == 0
 
 
+async def test_geojson_rejects_nul_in_farm_id(client: AsyncClient):
+    """A NUL byte can't be stored in Postgres text, so it is a 422, not a failed query."""
+    response = await client.get("/api/farms/geojson?farm_id=%00", headers=AUTH)
+    assert response.status_code == 422
+
+
 @requires_db
 async def test_geojson_filter_by_farm_id_respects_offset(client: AsyncClient):
     """farm_id goes through the same query, so offset still applies."""
