@@ -1,149 +1,53 @@
 # Farmland
 
-Hand-typed GPS corner strings are cleaned in SQL into validated farm polygons; farms that can't be repaired are listed with a reason.
+Farm boundaries arrive in a spreadsheet as four GPS corners typed by hand, with stray spaces, missing decimal points, swapped latitude and longitude, and degree signs. Farmland repairs those strings inside PostGIS into valid farm polygons with an area, serves them as GeoJSON, and lists every farm it could not repair with the reason, so no farm is dropped silently.
 
-All rows in `data/farmers_data.xls` are dummy data.
+## Run (macOS)
 
-**Stack:** PostgreSQL with PostGIS, FastAPI, async SQLAlchemy with asyncpg, pandas for loading the spreadsheet, Docker Compose for the database.
-
-## How the cleaning works
-
-Each farm in the spreadsheet has four GPS corners typed by hand, so the values are messy: stray spaces, missing decimal points, latitude and longitude swapped, degree signs. All of the cleaning happens in the database.
-
-    data/farmers_data.xls
-      -> scripts/ingest.py           loads the sheet as-is into raw_farmers_data (one transaction)
-      -> sql/clean_and_build.sql     runs in one transaction (psql -1, ON_ERROR_STOP)
-           clean_coordinate()        repair one corner, or return NULL
-           farm_candidates           four corners per farm, convex hull, reject_reason
-           ST_ForcePolygonCCW        exterior ring counter-clockwise (RFC 7946)
-           ST_Area(geography)        area_m2
-           ST_AsGeoJSON              serialised once, stored as JSON
-      -> processed_farm_geojson      materialized view of valid farms, unique index on farm_id
-      -> farm_rejections             view of every farm left out, with the reason
-      -> src/api.py                  plain indexed lookup, no geometry math per request
-
-The cleaning and geometry run in PostGIS rather than Python. The work is done once when the view is refreshed instead of on every request, so a read is just an indexed lookup against JSON that is already serialised. The unique index on `farm_id` is what allows `REFRESH MATERIALIZED VIEW CONCURRENTLY`, so the data can be rebuilt without blocking reads. The cost is that reads are eventually consistent: after re-ingesting the spreadsheet you have to refresh the view or the API keeps serving the old geometry. `scripts/ingest.py` does that refresh itself when the view already exists.
-
-**Repairing a corner.** `clean_coordinate()` takes one `"lat,lon"` string and:
-
-1. strips whitespace and degree signs (`17. 504503, 73.988443` becomes `17.504503,73.988443`);
-2. inserts a missing decimal point after two digits (`185228398` becomes `18.5228398`);
-3. swaps latitude and longitude if they were typed the wrong way round;
-4. checks the point lies inside India (latitude 6 to 38, longitude 66 to 98).
-
-Anything else returns `NULL`: hemisphere letters, signs, decimal commas, `NaN`, out-of-range values. `tests/test_cleaning.py` covers 25 of these inputs.
-
-**Why a convex hull.** The four corners are joined with `ST_ConvexHull`, so the polygon doesn't depend on the order they were typed in. On this sheet, 8 of the 10 rings in typed order are valid and have exactly the hull's area; the other 2 cross themselves (a bow-tie). One farm has two identical corners, so its hull is a triangle, which is still a valid polygon.
-
-Every polygon is valid and counter-clockwise, and `area_m2` is its area in square metres on the WGS84 spheroid.
-
-## Rejections
-
-A farm is never dropped silently. `farm_candidates` gives each farm a `reject_reason`, and the `farm_rejections` view lists every farm with one:
-
-| Reason | When |
-|---|---|
-| `missing farm_id` | the row has a serial number but a blank, `NaN` or `None` id; its `farm_id` is shown as `row <serial>` |
-| `duplicate farm_id` | the same id appears more than once (all copies are rejected, none is picked) |
-| `corner A unparseable` (B, C, D) | `clean_coordinate()` returned `NULL` for that corner |
-| `corners collinear or identical` | the hull is a line or a point, not a polygon |
-
-`./scripts/start.sh` prints the count after the first build, and `scripts/ingest.py` prints it after each refresh. The shipped sheet has 0 rejections. To see them:
+Needs Docker Desktop and uv (`brew install uv`).
 
 ```bash
-docker compose exec db psql -U farmland -d farmland_db -c "SELECT * FROM farm_rejections"
+docker run -d --name farmland-db -e POSTGRES_USER=farmland -e POSTGRES_PASSWORD=farmland \
+  -e POSTGRES_DB=farmland_db -p 5434:5432 imresamu/postgis:15-3.4
+uv sync
+uv run python scripts/ingest.py             # prints "10 farms built, 0 rejected"
+uv run uvicorn src.main:app --port 8000
 ```
 
-## Run
+Open <http://127.0.0.1:8000/docs> to try the endpoints. To see the farms on a map, paste the reply of `/api/farms` into [geojson.io](https://geojson.io).
 
-Requires Docker, [uv](https://docs.astral.sh/uv/) and `openssl`.
+## How it works
 
-```bash
-./scripts/start.sh
-```
+1. `scripts/ingest.py` reads `data/farmers_data.xls` (10 dummy farms), names the columns and writes the rows to `raw_farms` exactly as typed.
+2. In the same transaction it runs `sql/clean_and_build.sql`, so a re-run rebuilds everything or nothing.
+3. `clean_corner()` turns each corner string into a point inside India (latitude 6 to 38, longitude 66 to 98), or `NULL` if it cannot be repaired safely.
+4. The `farm_candidates` view joins a farm's four points into a convex hull and works out a reject reason, if any. The hull gives the same polygon whatever order the corners were typed in; on this sheet 2 of the 10 farms would otherwise cross themselves.
+5. `farms` is a materialized view of the valid farms with polygon, area in m² and GeoJSON; `farm_rejections` lists the rest.
+6. The API selects from those two views and does no geometry work per request.
 
-On the first run it copies `.env.example` to `.env` and fills the empty `POSTGRES_PASSWORD`, `DATABASE_URL` and `API_KEY` with random values. It then starts PostGIS, loads the spreadsheet, builds the cleaning function and views, prints the rejection count, and runs the API on <http://127.0.0.1:8000>. On later runs it just starts the API.
-
-To start from scratch, run `docker compose down -v` and delete `.env` together; a new `.env` has a new password that the old database volume would refuse.
+| Typed in the sheet | Result |
+| --- | --- |
+| `17. 504503, 73.988443` | `17.504503, 73.988443`: the space is removed |
+| `185228398, 74.9514` | `18.5228398, 74.9514`: a decimal point goes in after two digits |
+| `74.9514, 18.5228` | `18.5228, 74.9514`: latitude and longitude are swapped back |
+| `18.52N, 74.95E` | `NULL`: hemisphere letters are not guessed, so the farm is rejected |
+| `48.85, 2.35` | `NULL`: outside India |
 
 ## API
 
-| Endpoint | Auth | Description |
-|---|---|---|
-| `GET /health` | none | Database reachable and the view built |
-| `GET /api/farms/geojson` | `X-API-Key` | GeoJSON FeatureCollection; query params `farm_id`, `limit` (1 to 1000, default 100), `offset` |
+| Method | Path | What it does |
+| --- | --- | --- |
+| `GET` | `/health` | Database reachable and the `farms` view built; 200, or 503 |
+| `GET` | `/api/farms?limit=&offset=` | All valid farms as a GeoJSON FeatureCollection |
+| `GET` | `/api/farms/{farm_id}` | One farm as a GeoJSON Feature, or 404 |
+| `GET` | `/api/rejections` | Farms that were left out, with the reason |
 
-`farm_id` filters to one farm and still respects `limit` and `offset`; an empty `farm_id` means no filter. OpenAPI docs are at `/docs`.
-
-```bash
-API_KEY=$(grep '^API_KEY=' .env | cut -d= -f2)
-curl -H "X-API-Key: $API_KEY" "http://127.0.0.1:8000/api/farms/geojson?limit=1"
-```
-
-```json
-{
-  "type": "FeatureCollection",
-  "features": [
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Polygon",
-        "coordinates": [
-          [
-            [75.237454, 17.943258],
-            [75.237671, 17.944271],
-            [75.237287, 17.944327],
-            [75.237089, 17.943318],
-            [75.237454, 17.943258]
-          ]
-        ]
-      },
-      "properties": { "farm_id": "8805508334", "area_m2": 4580.5 }
-    }
-  ]
-}
-```
-
-## Configuration
-
-All values live in `.env` (see `.env.example`). `start.sh` fills the empty secrets.
-
-| Variable | Used by | Notes |
-|---|---|---|
-| `API_KEY` | API | Required; the API refuses to start without it. Clients send it as `X-API-Key`. |
-| `DATABASE_URL` | API, ingest, tests | `postgresql+asyncpg://user:password@localhost:5434/farmland_db`. No default. |
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Compose | The password is required; Compose won't start without it. |
-| `DB_PORT` | Compose | Port on 127.0.0.1 for PostGIS, default 5434 so it doesn't clash with a local Postgres. |
+The farm id is the sheet's phone column. `DATABASE_URL` defaults to the container above.
 
 ## Tests
 
 ```bash
-uv run pytest -v -rs
-uv run ruff check . && uv run ruff format --check .
+uv run pytest -q
 ```
 
-Most tests need the PostGIS database with the sheet loaded and the SQL built (`./scripts/start.sh` does this); they find it through `DATABASE_URL` in `.env`. Without it they are skipped, and `-rs` shows why. Setting `REQUIRE_DB=1` turns an unreachable database into an error instead of skips.
-
-## Layout
-
-```text
-sql/clean_and_build.sql   cleaning function, candidate and rejection views, materialized view
-scripts/ingest.py         loads the spreadsheet into raw_farmers_data
-scripts/start.sh          secrets, database, ingest, SQL build, API
-src/main.py               app, startup check for API_KEY, /health
-src/db.py                 async engine and session
-src/api.py                API key check and the GeoJSON endpoint
-tests/test_cleaning.py    clean_coordinate() cases and view invariants (DB tests)
-tests/test_api.py         endpoint, auth and pagination tests
-```
-
-## Limitations
-
-- **India only:** corners outside latitude 6 to 38 and longitude 66 to 98 are rejected.
-- **No guessing:** 1-digit latitudes without a decimal point and hemisphere letters (`N`, `E`) are rejected, not guessed.
-- **Phone number as id:** `farm_id` is the spreadsheet's phone column, which is fine for dummy data but not for real farms.
-- **Fixed columns:** the SQL reads the spreadsheet's columns by position (`Unnamed: 3`, `Unnamed: 7` to `Unnamed: 10`); a different layout needs the view updated.
-
-## License
-
-[MIT](LICENSE)
+The corner repair cases and the four endpoints, run against the PostGIS container after `ingest.py`.

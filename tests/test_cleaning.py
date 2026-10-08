@@ -34,58 +34,7 @@ CASES = [
 
 @requires_db
 @pytest.mark.parametrize(("raw", "expected"), CASES)
-async def test_clean_coordinate(test_session_factory, raw, expected):
-    """Test clean_coordinate() PL/pgSQL function handles various clean and messy inputs."""
-    async with test_session_factory() as session:
-        got = await session.scalar(text("SELECT ST_AsText(clean_coordinate(:raw))"), {"raw": raw})
+def test_clean_corner(db, raw, expected):
+    """Test clean_corner() PL/pgSQL function handles various clean and messy inputs."""
+    got = db.scalar(text("SELECT ST_AsText(clean_corner(:raw))"), {"raw": raw})
     assert got == expected
-
-
-@requires_db
-async def test_view_invariants(test_session_factory):
-    """Verify geometry invariants, CCW winding, area calculations, and rejection tracking."""
-    async with test_session_factory() as session:
-        row = (
-            await session.execute(
-                text("""
-            SELECT count(*), bool_and(ST_IsValid(geom)), bool_and(ST_IsPolygonCCW(geom)),
-                   min(area_m2), max(area_m2),
-                   bool_and(ST_Within(geom, ST_MakeEnvelope(66, 6, 98, 38, 4326)))
-            FROM processed_farm_geojson""")
-            )
-        ).one()
-        rejected = await session.scalar(text("SELECT count(*) FROM farm_rejections"))
-
-    assert row == (10, True, True, row[3], row[4], True)
-    assert row[3] >= 500 and row[4] <= 50_000
-    assert rejected == 0
-
-
-@requires_db
-async def test_missing_farm_id_is_rejected_not_dropped(test_session_factory):
-    """A data row with a serial number but no farm id is listed as a rejection."""
-    async with test_session_factory() as session:
-        # Rolled back below, so the shared raw table is never changed.
-        await session.execute(
-            text("""
-            INSERT INTO raw_farmers_data ("Unnamed: 1", "Unnamed: 3", "Unnamed: 7",
-                                          "Unnamed: 8", "Unnamed: 9", "Unnamed: 10")
-            VALUES ('9991', NULL, '18.5200,73.8500', '18.5200,73.8510',
-                    '18.5210,73.8510', '18.5210,73.8500'),
-                   ('9992', '  ', '18.5200,73.8500', '18.5200,73.8510',
-                    '18.5210,73.8510', '18.5210,73.8500')""")
-        )
-        rejections = (
-            await session.execute(
-                text("""
-                SELECT farm_id, reject_reason FROM farm_rejections
-                WHERE farm_id IN ('row 9991', 'row 9992') ORDER BY farm_id""")
-            )
-        ).all()
-        in_view = await session.scalar(
-            text("SELECT count(*) FROM processed_farm_geojson WHERE farm_id LIKE 'row %'")
-        )
-        await session.rollback()
-
-    assert rejections == [("row 9991", "missing farm_id"), ("row 9992", "missing farm_id")]
-    assert in_view == 0

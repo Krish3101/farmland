@@ -9,7 +9,6 @@ __pycache__/
 # Local config
 .env
 .env.*
-!.env.example
 
 # Editors and OS
 .vscode/

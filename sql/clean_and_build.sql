@@ -1,15 +1,15 @@
 -- sql/clean_and_build.sql
 -- Cleans raw coordinate strings, builds CCW convex hulls, and materializes GeoJSON.
--- Run with: psql -v ON_ERROR_STOP=1 -1 -f sql/clean_and_build.sql
+-- Run by scripts/ingest.py, in the same transaction that loads raw_farms.
 
 CREATE EXTENSION IF NOT EXISTS postgis;
 
 DROP VIEW IF EXISTS farm_rejections;
-DROP MATERIALIZED VIEW IF EXISTS processed_farm_geojson;
+DROP MATERIALIZED VIEW IF EXISTS farms;
 DROP VIEW IF EXISTS farm_candidates;
-DROP FUNCTION IF EXISTS clean_coordinate(text);
+DROP FUNCTION IF EXISTS clean_corner(text);
 
-CREATE FUNCTION clean_coordinate(coord text) RETURNS geometry(Point, 4326)
+CREATE FUNCTION clean_corner(coord text) RETURNS geometry(Point, 4326)
 LANGUAGE plpgsql IMMUTABLE STRICT PARALLEL SAFE AS $$
 DECLARE
     lat_str text;
@@ -56,23 +56,23 @@ CREATE VIEW farm_candidates AS
 WITH raw_parsed AS (
     SELECT
         -- Rows with a serial number but no usable id get 'row <serial>' so they can be found.
-        CASE WHEN id_missing THEN 'row ' || TRIM("Unnamed: 1"::text)
-             ELSE TRIM("Unnamed: 3"::text) END AS farm_id,
+        CASE WHEN id_missing THEN 'row ' || TRIM(serial_no)
+             ELSE TRIM(phone) END AS farm_id,
         id_missing,
-        clean_coordinate("Unnamed: 7"::text) AS a,
-        clean_coordinate("Unnamed: 8"::text) AS b,
-        clean_coordinate("Unnamed: 9"::text) AS c,
-        clean_coordinate("Unnamed: 10"::text) AS d,
+        clean_corner(corner_a) AS a,
+        clean_corner(corner_b) AS b,
+        clean_corner(corner_c) AS c,
+        clean_corner(corner_d) AS d,
         -- Missing ids are never duplicates of each other.
         CASE WHEN id_missing THEN 1
-             ELSE COUNT(*) OVER (PARTITION BY id_missing, TRIM("Unnamed: 3"::text)) END AS n
+             ELSE COUNT(*) OVER (PARTITION BY id_missing, TRIM(phone)) END AS n
     FROM (
         SELECT *,
-            ("Unnamed: 3" IS NULL
-             OR TRIM("Unnamed: 3"::text) = ''
-             OR TRIM("Unnamed: 3"::text) IN ('NaN', 'None', 'Sr. No.')) AS id_missing
-        FROM raw_farmers_data
-        WHERE "Unnamed: 1" NOT IN ('Sr. No.', 'NaN') AND "Unnamed: 1" IS NOT NULL
+            (phone IS NULL
+             OR TRIM(phone) = ''
+             OR TRIM(phone) IN ('NaN', 'None')) AS id_missing
+        FROM raw_farms
+        WHERE serial_no IS NOT NULL
     ) AS data_rows
 ),
 hulls AS (
@@ -98,7 +98,7 @@ SELECT farm_id, geom,
     END AS reject_reason
 FROM hulls;
 
-CREATE MATERIALIZED VIEW processed_farm_geojson AS
+CREATE MATERIALIZED VIEW farms AS
 SELECT farm_id,
        geom::geometry(Polygon, 4326) AS geom,
        round(ST_Area(geom::geography)::numeric, 1) AS area_m2,
@@ -106,8 +106,7 @@ SELECT farm_id,
 FROM farm_candidates
 WHERE reject_reason IS NULL;
 
-CREATE UNIQUE INDEX idx_processed_farm_geojson_farm_id ON processed_farm_geojson (farm_id);
-CREATE INDEX idx_processed_farm_geojson_geom ON processed_farm_geojson USING GIST (geom);
+CREATE UNIQUE INDEX farms_farm_id_idx ON farms (farm_id);
 
 CREATE VIEW farm_rejections AS
 SELECT farm_id, reject_reason
